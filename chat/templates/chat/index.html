@@ -26,7 +26,7 @@
 
         <div class="flex-1 overflow-y-auto"> <!-- Added overflow-y-auto for scrollable chat list -->
             <!-- Folder Dropdown -->
-            <details class="group">
+            <details class="group" open>
                 <summary class="text-sm font-bold text-gray-400 mt-4 mb-2 px-2 cursor-pointer list-none flex items-center justify-between">
                     <span><!-- <span class="group-open:rotate-90 inline-block mr-1 transition-transform duration-150 transform">▶</span>--> Folders</span>
                 </summary>
@@ -699,7 +699,7 @@
                         })
                         .then(data => {
                             if (data.status === 'success') {
-                                alert(data.message || 'Folder created successfully!');
+                                //alert(data.message || 'Folder created successfully!');
                                 window.location.reload(); // Reload to see the new folder
                             } else {
                                 alert('Error creating folder: ' + (data.error || 'Unknown error'));

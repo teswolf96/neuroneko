@@ -6,6 +6,7 @@ from django.urls import reverse
 from django.http import JsonResponse, HttpResponseForbidden, HttpResponseBadRequest
 from django.views.decorators.http import require_POST
 from django.db import transaction
+import json
 from django.contrib import messages
 
 from .models import Chat, Message, Folder, UserSettings, AIEndpoint, AIModel
@@ -246,7 +247,12 @@ def create_new_chat_view(request):
 @login_required
 @require_POST
 def create_folder_api(request):
-    folder_name = request.POST.get('folder_name', '').strip()
+    try:
+        data = json.loads(request.body)
+        folder_name = data.get('folder_name', '').strip()
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'error': 'Invalid JSON.'}, status=400)
+
     if not folder_name:
         return JsonResponse({'status': 'error', 'error': 'Folder name cannot be empty.'}, status=400)
     if Folder.objects.filter(user=request.user, name=folder_name).exists():
@@ -258,8 +264,12 @@ def create_folder_api(request):
 @login_required
 @require_POST
 def rename_folder_api(request):
-    old_name = request.POST.get('old_folder_name', '').strip()
-    new_name = request.POST.get('new_folder_name', '').strip()
+    try:
+        data = json.loads(request.body)
+        old_name = data.get('old_folder_name', '').strip()
+        new_name = data.get('new_folder_name', '').strip()
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'error': 'Invalid JSON.'}, status=400)
 
     if not old_name or not new_name:
         return JsonResponse({'status': 'error', 'error': 'Folder names cannot be empty.'}, status=400)
@@ -280,7 +290,12 @@ def rename_folder_api(request):
 @login_required
 @require_POST
 def delete_folder_api(request):
-    folder_name = request.POST.get('folder_name', '').strip()
+    try:
+        data = json.loads(request.body)
+        folder_name = data.get('folder_name', '').strip()
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'error': 'Invalid JSON.'}, status=400)
+
     if not folder_name:
         return JsonResponse({'status': 'error', 'error': 'Folder name cannot be empty.'}, status=400)
     
@@ -432,8 +447,12 @@ def get_chat_details_api(request, chat_id):
 @require_POST
 def add_message_to_chat_api(request, chat_id):
     chat = get_object_or_404(Chat, id=chat_id, user=request.user)
-    message_content = request.POST.get('message_content', '').strip()
-    parent_message_id = request.POST.get('parent_message_id')
+    try:
+        data = json.loads(request.body)
+        message_content = data.get('message_content', '').strip()
+        parent_message_id = data.get('parent_message_id')
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'error': 'Invalid JSON.'}, status=400)
 
     if not message_content:
         return JsonResponse({'status': 'error', 'error': 'Message content cannot be empty.'}, status=400)
@@ -467,13 +486,11 @@ def add_message_to_chat_api(request, chat_id):
 @require_POST
 def update_message_content_api(request, chat_id, message_id):
     message_obj = get_object_or_404(Message, id=message_id, chat_id=chat_id, chat__user=request.user)
-    new_content = request.POST.get('new_content', '').strip() # Assuming POST, could be JSON
-    
-    # For JSON:
-    # import json
-    # data = json.loads(request.body)
-    # new_content = data.get('new_content', '').strip()
-
+    try:
+        data = json.loads(request.body)
+        new_content = data.get('new_content', '').strip()
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'error': 'Invalid JSON.'}, status=400)
 
     if not new_content: # Or handle this validation in a form
         return JsonResponse({'status': 'error', 'error': 'Content cannot be empty.'}, status=400)
@@ -486,12 +503,11 @@ def update_message_content_api(request, chat_id, message_id):
 @require_POST
 def update_message_role_api(request, chat_id, message_id):
     message_obj = get_object_or_404(Message, id=message_id, chat_id=chat_id, chat__user=request.user)
-    new_role = request.POST.get('new_role', '').strip().lower() # Assuming POST
-    
-    # For JSON:
-    # import json
-    # data = json.loads(request.body)
-    # new_role = data.get('new_role', '').strip().lower()
+    try:
+        data = json.loads(request.body)
+        new_role = data.get('new_role', '').strip().lower()
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'error': 'Invalid JSON.'}, status=400)
 
     VALID_ROLES = ['user', 'assistant', 'system'] # Define valid roles
     if not new_role in VALID_ROLES:
@@ -536,22 +552,25 @@ def delete_message_api(request, chat_id, message_id):
 @require_POST
 def add_sibling_message_api(request, chat_id, source_message_id):
     source_message = get_object_or_404(Message, id=source_message_id, chat_id=chat_id, chat__user=request.user)
-    
+    # This view might not always receive a JSON body, as per the frontend JS, it's a POST without a body.
+    # However, if it were to accept parameters via JSON in the future, it should be prepared.
+    # For now, no changes to data parsing are strictly needed based on current frontend.
+    # If the request *were* to send JSON:
+    # try:
+    #     data = json.loads(request.body) if request.body else {}
+    # except json.JSONDecodeError:
+    #     return JsonResponse({'status': 'error', 'error': 'Invalid JSON.'}, status=400)
+
     if not source_message.parent:
         return JsonResponse({'status': 'error', 'error': 'Cannot add a sibling to a root message this way. Create a new branch from UI if needed.'}, status=400)
 
     with transaction.atomic():
-        # Create a new message as a child of the source_message's parent
-        # Typically, a sibling implies a new "assistant" response to the same "user" prompt (source_message.parent)
-        # Or a new "user" reply if source_message was an "assistant" reply.
-        # For simplicity, let's assume new sibling is an "assistant" message for now.
         new_sibling = Message.objects.create(
             chat=source_message.chat,
-            message="New alternative message...", # Default content
-            role=source_message.role, # Or 'assistant' if source was 'user' that prompted this branch
+            message="New alternative message...", 
+            role=source_message.role, 
             parent=source_message.parent
         )
-        # Set this new sibling as the active child of the parent
         source_message.parent.active_child = new_sibling
         source_message.parent.save()
 
@@ -566,13 +585,12 @@ def add_sibling_message_api(request, chat_id, source_message_id):
 @login_required
 @require_POST
 def set_active_child_api(request, chat_id):
-    # import json
-    # data = json.loads(request.body)
-    # parent_message_id = data.get('parent_message_id')
-    # child_to_activate_id = data.get('child_to_activate_id')
-    parent_message_id = request.POST.get('parent_message_id')
-    child_to_activate_id = request.POST.get('child_to_activate_id')
-
+    try:
+        data = json.loads(request.body)
+        parent_message_id = data.get('parent_message_id')
+        child_to_activate_id = data.get('child_to_activate_id')
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'error': 'Invalid JSON.'}, status=400)
 
     if not parent_message_id or not child_to_activate_id:
         return JsonResponse({'status': 'error', 'error': 'Parent and child message IDs are required.'}, status=400)
@@ -590,11 +608,11 @@ def set_active_child_api(request, chat_id):
 @require_POST
 def rename_chat_title_api(request, chat_id):
     chat = get_object_or_404(Chat, id=chat_id, user=request.user)
-    # import json
-    # data = json.loads(request.body)
-    # new_title = data.get('new_title', '').strip()
-    new_title = request.POST.get('new_title', '').strip()
-
+    try:
+        data = json.loads(request.body)
+        new_title = data.get('new_title', '').strip()
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'error': 'Invalid JSON.'}, status=400)
 
     if not new_title:
         return JsonResponse({'status': 'error', 'error': 'Title cannot be empty.'}, status=400)
