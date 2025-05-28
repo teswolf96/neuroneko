@@ -369,3 +369,45 @@ def delete_message_view(request, chat_id, message_id):
     _recursive_delete(message_to_delete)
 
     return JsonResponse({'status': 'success', 'message': 'Message and its replies deleted successfully.'})
+
+@login_required
+@require_POST
+@transaction.atomic
+def add_sibling_view(request, chat_id, source_message_id):
+    try:
+        chat = get_object_or_404(Chat, pk=chat_id, user=request.user)
+        source_message = get_object_or_404(Message, pk=source_message_id, chat=chat)
+
+        # Create the new sibling message
+        new_sibling_message = Message.objects.create(
+            chat=chat,
+            parent=source_message.parent, # Sibling shares the same parent
+            role=source_message.role,     # Sibling shares the same role
+            message="",                   # Blank content
+            # created_at will be set automatically
+        )
+
+        # If the parent had the source_message as its active_child,
+        # we might want to set the new sibling as the active_child,
+        # or leave it to the user to navigate. For now, let's make the new sibling active.
+        if source_message.parent:
+            source_message.parent.active_child = new_sibling_message
+            source_message.parent.save(update_fields=['active_child'])
+        # If source_message has no parent (it's a root), then active_child logic
+        # for the chat's root_message might need consideration, but typically
+        # root messages don't have an 'active_child' in the same way.
+        # The frontend re-fetch will handle displaying the new message.
+
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Sibling message added successfully.',
+            'new_message_id': new_sibling_message.id
+        }, status=201)
+
+    except Chat.DoesNotExist:
+        return JsonResponse({'error': 'Chat not found.'}, status=404)
+    except Message.DoesNotExist:
+        return JsonResponse({'error': 'Source message not found.'}, status=404)
+    except Exception as e:
+        # Log e for debugging
+        return JsonResponse({'error': str(e)}, status=500)

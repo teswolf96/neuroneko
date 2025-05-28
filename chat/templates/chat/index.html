@@ -282,6 +282,53 @@
                     }
                 });
 
+                const addSiblingButton = document.createElement('button');
+                addSiblingButton.innerHTML = '↪️'; // Unicode for Add Sibling (Branch)
+                addSiblingButton.title = 'Add Sibling';
+                addSiblingButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none');
+                addSiblingButton.addEventListener('click', function() {
+                    const sourceMessageId = messageDiv.dataset.messageId;
+                    if (!currentChatId || !sourceMessageId) {
+                        console.error('Chat ID or Source Message ID is missing for adding sibling.');
+                        alert('Could not add sibling: Chat or Source Message ID missing.');
+                        return;
+                    }
+
+                    fetch(`/api/chat/${currentChatId}/message/${sourceMessageId}/add_sibling/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        // No body needed as the backend derives info from source_message_id
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('Add sibling successful:', data.message);
+                        // Re-fetch chat details to update UI
+                        const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                        if (activeChatListItem) {
+                            activeChatListItem.click();
+                        } else if (currentChatId) {
+                            const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                            if (targetChatLink) {
+                                const targetChatItem = targetChatLink.closest('.chat-item');
+                                if (targetChatItem) targetChatItem.click();
+                            }
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error adding sibling message:', error);
+                        alert('Error adding sibling: ' + error.message);
+                    });
+                });
+
+                iconsDiv.appendChild(addSiblingButton); // Add new button first
                 iconsDiv.appendChild(copyButton);
                 iconsDiv.appendChild(editButton);
                 iconsDiv.appendChild(deleteButton);
