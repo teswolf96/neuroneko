@@ -6,7 +6,7 @@ from django.views.decorators.http import require_POST
 from django.db import transaction # Added for atomic transactions
 import json
 
-from .models import Chat, Folder, UserSettings, Message # Added Message
+from .models import Chat, Folder, UserSettings, Message, AIModel # Added Message and AIModel
 from .forms import UserSettingsForm
 
 @login_required
@@ -443,3 +443,101 @@ def update_message_content(request, chat_id, message_id):
         # logger = logging.getLogger(__name__)
         # logger.error(f"Error updating message content: {e}")
         return JsonResponse({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
+
+@login_required # Ensure this view also requires login
+def create_new_chat_view(request): # Renamed for clarity
+    user = request.user
+    
+    # Get_or_create user settings to ensure they exist and to update last_active_chat later
+    user_settings, created_settings = UserSettings.objects.get_or_create(
+        user=user,
+        defaults={ # Sensible defaults if UserSettings record is created now
+            'system_prompt': "You are playing the role of a friendly and helpful chatbot.",
+            'default_temp': 1.0,
+            # 'default_model' will be None initially if created here, might need handling
+        }
+    )
+
+    default_model = user_settings.default_model
+    default_temp = user_settings.default_temp
+    default_system_prompt = user_settings.system_prompt
+
+    if not default_model:
+        # The post_save signal on User creation in models.py should set a default_model.
+        # If it can still be None (e.g., UserSettings existed before signal or manual deletion),
+        # this is a configuration issue.
+        messages.error(request, "Default AI model not configured. Please check your settings.")
+        return redirect('user_settings') # Redirect to settings page
+
+    # Create the new Chat
+    new_chat = Chat.objects.create(
+        user=user,
+        title="New Chat", # Consider a more dynamic title, e.g., "Chat - May 28, 4:17 PM"
+        folder=None,      # Explicitly None as per requirement
+        ai_model_used=default_model,
+        ai_temperatue=default_temp # Field name from model (ai_temperatue)
+    )
+
+    # Create the initial System Message
+    system_message = Message.objects.create(
+        chat=new_chat,
+        message=default_system_prompt,
+        role='system'
+        # parent will be None for the first message
+    )
+
+    # Set the root message for the chat
+    new_chat.root_message = system_message
+    new_chat.save(update_fields=['root_message'])
+
+    # Update the user's last active chat to this new one
+    user_settings.last_active_chat = new_chat
+    user_settings.save(update_fields=['last_active_chat'])
+
+    # Redirect to the main index page. The JavaScript on that page
+    # should pick up the last_active_chat_id and load it.
+    return redirect('index') # 'index' is the name of the main chat view
+
+@login_required
+@require_POST
+def rename_chat_title(request, chat_id):
+    try:
+        data = json.loads(request.body)
+        new_title = data.get('new_title')
+
+        if not new_title or not new_title.strip():
+            return JsonResponse({'error': 'New title cannot be empty.'}, status=400)
+
+        chat = get_object_or_404(Chat, pk=chat_id, user=request.user)
+        
+        chat.title = new_title.strip()
+        chat.save(update_fields=['title'])
+
+        return JsonResponse({'status': 'success', 'message': 'Chat title updated successfully.', 'new_title': chat.title})
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
+    except Chat.DoesNotExist:
+        return JsonResponse({'error': 'Chat not found or permission denied.'}, status=404)
+    except Exception as e:
+        # Log e for server-side debugging
+        # logger.error(f"Error renaming chat title: {e}")
+        return JsonResponse({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
+
+@login_required
+@require_POST
+def delete_chat(request, chat_id):
+    try:
+        chat = get_object_or_404(Chat, id=chat_id, user=request.user)
+        chat.delete()
+        # If this was the last_active_chat, clear it from user settings
+        if hasattr(request.user, 'settings') and request.user.settings.last_active_chat_id == chat_id:
+            request.user.settings.last_active_chat = None
+            request.user.settings.save(update_fields=['last_active_chat'])
+        return JsonResponse({'status': 'success', 'message': 'Chat deleted successfully.'})
+    except Http404:
+        return JsonResponse({'status': 'error', 'message': 'Chat not found or permission denied.'}, status=404)
+    except Exception as e:
+        # Log e for server-side debugging
+        # logger.error(f"Error deleting chat: {e}")
+        return JsonResponse({'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'}, status=500)
