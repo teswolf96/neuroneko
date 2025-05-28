@@ -13,28 +13,80 @@
 
     <!-- Sidebar -->
     <aside class="w-64 bg-gray-800 p-4 flex flex-col">
-        <a href="{% url 'create_new_chat' %}" class="bg-gray-700 text-white px-4 py-2 rounded mb-4 inline-block text-center">+ New Chat</a>
+        <div class="flex items-center space-x-2 mb-4">
+            <a href="{% url 'create_new_chat' %}" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm text-center flex-grow">
+                + New Chat
+            </a>
+            <button id="new-folder-button" title="New Folder" class="bg-gray-700 hover:bg-gray-600 text-white p-2 rounded">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+                </svg>
+            </button>
+        </div>
 
         <div class="flex-1 overflow-y-auto"> <!-- Added overflow-y-auto for scrollable chat list -->
-            {% for item in folder_structure %}
-                {% if item.name != "Other Chats" or item.chats %} <!-- Show folder or "Other Chats" if it has chats -->
-                    <h2 class="text-sm font-bold text-gray-400 mt-4 mb-2 px-2">{{ item.name }}</h2>
-                    {% if item.chats %}
-                        <ul class="space-y-1">
-                            {% for chat in item.chats %}
-                                <li class="text-white py-1 hover:bg-gray-700 rounded px-2 text-sm chat-item flex items-center justify-between" data-chat-id="{{ chat.id }}" data-chat-full-title="{{ chat.title }}">
-                                    <a href="#" class="chat-link flex-grow" data-chat-id="{{ chat.id }}">{{ chat.title|truncatechars:25 }}</a>
-                                    <div class="chat-actions flex space-x-2 ml-2 hidden">
-                                        <button class="rename-chat-button text-gray-400 hover:text-white text-xs focus:outline-none" title="Rename">✏️</button>
-                                        <button class="delete-chat-button text-gray-400 hover:text-white text-xs focus:outline-none" title="Delete" data-chat-id="{{ chat.id }}">🗑️</button>
+            <!-- Folder Dropdown -->
+            <details class="group">
+                <summary class="text-sm font-bold text-gray-400 mt-4 mb-2 px-2 cursor-pointer list-none flex items-center justify-between">
+                    <span><!-- <span class="group-open:rotate-90 inline-block mr-1 transition-transform duration-150 transform">▶</span>--> Folders</span>
+                </summary>
+                <div class="ml-4"> <!-- Indent folder contents slightly more -->
+                    {% for item in folder_structure %}
+                        {% if item.name != "Other Chats" %}
+                            <details class="group mt-2 folder-item-container"> <!-- Wrapper for each folder, now a details element -->
+                                <summary class="text-sm font-semibold text-gray-300 mb-1 px-2 cursor-pointer list-none flex items-center justify-between">
+                                    <span class="folder-name-display flex-grow"><!-- <span class="group-open:rotate-90 inline-block mr-1 transition-transform duration-150 transform">▶</span>--> {{ item.name }}</span>
+                                    <div class="folder-actions flex items-center space-x-1 ml-2 hidden" data-folder-name="{{ item.name|escapejs }}">
+                                        <button class="create-chat-in-folder-button text-gray-400 hover:text-white text-xs focus:outline-none" title="New Chat in Folder">➕</button>
+                                        <button class="rename-folder-button text-gray-400 hover:text-white text-xs focus:outline-none" title="Rename Folder">✏️</button>
+                                        <button class="delete-folder-button text-gray-400 hover:text-white text-xs focus:outline-none" title="Delete Folder">🗑️</button>
                                     </div>
-                                </li>
-                            {% endfor %}
-                        </ul>
-                    {% else %}
-                        {% if item.name != "Other Chats" %} <!-- Don't show "No chats here" for the general "Other Chats" if it's empty by design -->
-                            <p class="text-xs text-gray-500 ml-2 px-2">No chats in this folder.</p>
+                                </summary>
+                                <div class="ml-4"> <!-- Indent chats within each folder -->
+                                    {% if item.chats %}
+                                        <ul class="space-y-1">
+                                            {% for chat in item.chats %}
+                                                <li class="text-white py-1 hover:bg-gray-700 rounded px-2 text-sm chat-item flex items-center justify-between" data-chat-id="{{ chat.id }}" data-chat-full-title="{{ chat.title }}">
+                                                    <a href="#" class="chat-link flex-grow" data-chat-id="{{ chat.id }}">{{ chat.title|truncatechars:25 }}</a>
+                                                    <div class="chat-actions flex space-x-2 ml-2 hidden">
+                                                        <button class="rename-chat-button text-gray-400 hover:text-white text-xs focus:outline-none" title="Rename">✏️</button>
+                                                        <button class="delete-chat-button text-gray-400 hover:text-white text-xs focus:outline-none" title="Delete" data-chat-id="{{ chat.id }}">🗑️</button>
+                                                    </div>
+                                                </li>
+                                            {% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        <p class="text-xs text-gray-500 ml-2 px-2">No chats in this folder.</p>
+                                    {% endif %}
+                                </div>
+                            </details>
                         {% endif %}
+                    {% endfor %}
+                </div>
+            </details>
+
+            <!-- Other Chats (Collapsible) -->
+            {% for item in folder_structure %}
+                {% if item.name == "Other Chats" %}
+                    {% if item.chats %} <!-- Only show "Other Chats" section if it has chats -->
+                    <details class="group" open> <!-- Default open -->
+                        <summary class="text-sm font-bold text-gray-400 mt-4 mb-2 px-2 cursor-pointer list-none flex items-center">
+                             <!-- <span class="group-open:rotate-90 inline-block mr-1 transition-transform duration-150 transform">▶</span>--> {{ item.name }}
+                        </summary>
+                        <div class="ml-4"> <!-- Indent "Other Chats" contents slightly more -->
+                            <ul class="space-y-1">
+                                {% for chat in item.chats %}
+                                    <li class="text-white py-1 hover:bg-gray-700 rounded px-2 text-sm chat-item flex items-center justify-between" data-chat-id="{{ chat.id }}" data-chat-full-title="{{ chat.title }}">
+                                        <a href="#" class="chat-link flex-grow" data-chat-id="{{ chat.id }}">{{ chat.title|truncatechars:25 }}</a>
+                                        <div class="chat-actions flex space-x-2 ml-2 hidden">
+                                            <button class="rename-chat-button text-gray-400 hover:text-white text-xs focus:outline-none" title="Rename">✏️</button>
+                                            <button class="delete-chat-button text-gray-400 hover:text-white text-xs focus:outline-none" title="Delete" data-chat-id="{{ chat.id }}">🗑️</button>
+                                        </div>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </details>
                     {% endif %}
                 {% endif %}
             {% endfor %}
@@ -108,6 +160,7 @@
             const chatMessagesContainerEl = document.getElementById('chat-messages-container');
             const messageInputTextarea = document.querySelector('textarea[placeholder="Type a message or click / for prompts..."]');
             const saveButton = document.querySelector('button.bg-gray-600.px-4.py-2.rounded.w-full'); // More specific selector if needed
+            const newFolderButton = document.getElementById('new-folder-button');
 
             let currentActiveChatLi = null;
             let currentChatId = null; // To store the ID of the currently active chat
@@ -621,9 +674,44 @@
                             if (currentActiveChatLi) {
                                 currentActiveChatLi.classList.remove('bg-blue-600', 'text-white');
                                 currentActiveChatLi.classList.add('hover:bg-gray-700');
-                            }
-                        });
+                    }
                 });
+            });
+
+            // New Folder button functionality
+            if (newFolderButton) {
+                newFolderButton.addEventListener('click', function() {
+                    const folderName = window.prompt("Enter the name for the new folder:");
+                    if (folderName && folderName.trim() !== "") {
+                        fetch(`/api/folder/create/`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': '{{ csrf_token }}'
+                            },
+                            body: JSON.stringify({ folder_name: folderName.trim() })
+                        })
+                        .then(response => {
+                            if (!response.ok) {
+                                return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            if (data.status === 'success') {
+                                alert(data.message || 'Folder created successfully!');
+                                window.location.reload(); // Reload to see the new folder
+                            } else {
+                                alert('Error creating folder: ' + (data.error || 'Unknown error'));
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error creating folder:', error);
+                            alert('Error creating folder: ' + error.message);
+                        });
+                    }
+                });
+            }
             });
 
             // Automatically click the last active chat if it exists
@@ -713,6 +801,189 @@
             } else {
                 console.warn("Save button not found.");
             }
+
+            // Show/Hide folder actions on hover
+            document.querySelectorAll('.folder-item-container summary').forEach(summaryElement => {
+                const folderActions = summaryElement.querySelector('.folder-actions');
+                if (folderActions) {
+                    summaryElement.addEventListener('mouseenter', function() {
+                        // Do not show actions if an input field is active within this summary (e.g., renaming folder)
+                        if (!summaryElement.querySelector('.folder-name-input')) {
+                            folderActions.classList.remove('hidden');
+                        }
+                    });
+                    summaryElement.addEventListener('mouseleave', function() {
+                        folderActions.classList.add('hidden');
+                    });
+                }
+            });
+
+            // Create new chat in folder functionality
+            document.querySelectorAll('.create-chat-in-folder-button').forEach(button => {
+                button.addEventListener('click', function(event) {
+                    event.stopPropagation(); // Prevent the details/summary click
+                    event.preventDefault(); // Prevent default button action if any
+                    const folderName = this.closest('.folder-actions').dataset.folderName;
+                    if (folderName) {
+                        // Assuming 'create_new_chat' is the name of your URL pattern for creating a new chat
+                        // And it can accept a 'folder' query parameter.
+                        window.location.href = `{% url 'create_new_chat' %}?folder=${encodeURIComponent(folderName)}`;
+                    }
+                });
+            });
+
+            // Rename Folder functionality
+            document.querySelectorAll('.rename-folder-button').forEach(button => {
+                button.addEventListener('click', function(event) {
+                    event.stopPropagation(); // Prevent details/summary click
+                    event.preventDefault();
+
+                    const folderActionsDiv = this.closest('.folder-actions');
+                    const summaryElement = this.closest('summary');
+                    const folderNameSpan = summaryElement.querySelector('.folder-name-display');
+                    const originalFolderName = folderActionsDiv.dataset.folderName;
+
+                    if (summaryElement.querySelector('.folder-name-input')) {
+                        return; // Already in edit mode
+                    }
+
+                    folderNameSpan.style.display = 'none';
+                    folderActionsDiv.classList.add('hidden'); // Hide actions while renaming
+
+                    const inputElement = document.createElement('input');
+                    inputElement.type = 'text';
+                    inputElement.value = originalFolderName;
+                    inputElement.classList.add('folder-name-input', 'bg-gray-700', 'text-white', 'p-1', 'rounded', 'text-sm', 'flex-grow', 'mr-2'); // Added mr-2 for spacing from potential other elements
+                    
+                    // Insert input before the folder-actions div, or at the start of summary if that's cleaner
+                    summaryElement.insertBefore(inputElement, folderNameSpan.nextSibling); // Insert after the (now hidden) span
+                    
+                    inputElement.focus();
+                    inputElement.select();
+
+                    function revertFolderDisplay() {
+                        if (summaryElement.contains(inputElement)) {
+                            summaryElement.removeChild(inputElement);
+                        }
+                        folderNameSpan.style.display = '';
+                        // folderActionsDiv.classList.remove('hidden'); // Re-showing actions is handled by mouseenter/leave
+                    }
+
+                    inputElement.addEventListener('keypress', function(e) {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const newFolderName = inputElement.value.trim();
+                            if (newFolderName && newFolderName !== originalFolderName) {
+                                // API Call to rename folder
+                                fetch(`/api/folder/rename/`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'X-CSRFToken': '{{ csrf_token }}'
+                                    },
+                                    body: JSON.stringify({
+                                        old_folder_name: originalFolderName,
+                                        new_folder_name: newFolderName
+                                    })
+                                })
+                                .then(response => {
+                                    if (!response.ok) {
+                                        return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                                    }
+                                    return response.json();
+                                })
+                                .then(data => {
+                                    if (data.status === 'success') {
+                                        // Update UI: folder name, data-attribute, and potentially re-render part of the list or reload
+                                        // For now, just update the display and data attribute. A full reload might be safer.
+                                        folderNameSpan.textContent = newFolderName;
+                                        folderActionsDiv.dataset.folderName = newFolderName;
+                                        // Update folder name for all chats within this folder in the UI (if displayed)
+                                        const folderDetailsContainer = summaryElement.closest('.folder-item-container');
+                                        // This part is complex as it requires updating potentially many chat items if they store folder context
+                                        // For simplicity, a page reload or re-fetching folder structure might be better after successful rename.
+                                        // For now, we'll just update the name.
+                                        // alert(data.message + " Please refresh the page to see all changes reflected."); // Temp
+                                        revertFolderDisplay();
+                                    } else {
+                                        alert('Error renaming folder: ' + (data.error || 'Unknown error'));
+                                        revertFolderDisplay();
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Error renaming folder:', error);
+                                    alert('Error renaming folder: ' + error.message);
+                                    revertFolderDisplay();
+                                });
+                            } else {
+                                revertFolderDisplay();
+                            }
+                        }
+                    });
+
+                    inputElement.addEventListener('blur', function() {
+                        setTimeout(revertFolderDisplay, 150); // Delay to allow Enter to process
+                    });
+
+                    inputElement.addEventListener('keydown', function(e) {
+                        if (e.key === 'Escape') {
+                            revertFolderDisplay();
+                        }
+                    });
+                });
+            });
+
+            // Delete Folder functionality
+            document.querySelectorAll('.delete-folder-button').forEach(button => {
+                button.addEventListener('click', function(event) {
+                    event.stopPropagation(); // Prevent details/summary click
+                    event.preventDefault();
+
+                    const folderActionsDiv = this.closest('.folder-actions');
+                    const folderName = folderActionsDiv.dataset.folderName;
+                    const folderContainerElement = this.closest('.folder-item-container');
+
+
+                    if (!folderName) {
+                        alert('Error: Folder name not found.');
+                        return;
+                    }
+
+                    if (window.confirm(`Are you sure you want to delete the folder "${folderName}"?`)) {
+                        fetch(`/api/folder/delete/`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': '{{ csrf_token }}'
+                            },
+                            body: JSON.stringify({ folder_name: folderName })
+                        })
+                        .then(response => {
+                            if (!response.ok) {
+                                return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            if (data.status === 'success') {
+                                // Remove the folder from the UI.
+                                // This might require a more robust way to update the list, e.g., re-fetching or page reload.
+                                // For now, just remove the element.
+                                if (folderContainerElement) {
+                                    folderContainerElement.remove();
+                                }
+                                // alert(data.message + " Please refresh the page if items don't appear correctly in 'Other Chats'."); // Temp
+                            } else {
+                                alert('Error deleting folder: ' + (data.error || 'Unknown error'));
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error deleting folder:', error);
+                            alert('Error deleting folder: ' + error.message);
+                        });
+                    }
+                });
+            });
 
             // Rename chat functionality
             document.querySelectorAll('.rename-chat-button').forEach(button => {

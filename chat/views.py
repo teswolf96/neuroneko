@@ -469,11 +469,23 @@ def create_new_chat_view(request): # Renamed for clarity
         messages.error(request, "Default AI model not configured. Please check your settings.")
         return redirect('user_settings') # Redirect to settings page
 
+    # Determine folder for the new chat
+    target_folder = None
+    folder_name_from_query = request.GET.get('folder')
+    if folder_name_from_query:
+        # Try to find an existing folder or create a new one if it doesn't exist
+        # This assumes folder names are unique per user.
+        # If your Folder model doesn't enforce this, you might need to adjust.
+        target_folder, created = Folder.objects.get_or_create(
+            user=user, 
+            name=folder_name_from_query
+        )
+
     # Create the new Chat
     new_chat = Chat.objects.create(
         user=user,
         title="New Chat", # Consider a more dynamic title, e.g., "Chat - May 28, 4:17 PM"
-        folder=None,      # Explicitly None as per requirement
+        folder=target_folder, # Assign the folder
         ai_model_used=default_model,
         ai_temperatue=default_temp # Field name from model (ai_temperatue)
     )
@@ -531,7 +543,7 @@ def delete_chat(request, chat_id):
         chat = get_object_or_404(Chat, id=chat_id, user=request.user)
         chat.delete()
         # If this was the last_active_chat, clear it from user settings
-        if hasattr(request.user, 'settings') and request.user.settings.last_active_chat_id == chat_id:
+        if hasattr(request.user, 'settings') and request.user.settings.last_active_chat_id == chat_id: # Check against chat_id directly
             request.user.settings.last_active_chat = None
             request.user.settings.save(update_fields=['last_active_chat'])
         return JsonResponse({'status': 'success', 'message': 'Chat deleted successfully.'})
@@ -541,3 +553,99 @@ def delete_chat(request, chat_id):
         # Log e for server-side debugging
         # logger.error(f"Error deleting chat: {e}")
         return JsonResponse({'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'}, status=500)
+
+@login_required
+@require_POST
+@transaction.atomic
+def rename_folder_api(request):
+    try:
+        data = json.loads(request.body)
+        old_folder_name = data.get('old_folder_name')
+        new_folder_name = data.get('new_folder_name')
+
+        if not old_folder_name or not new_folder_name:
+            return JsonResponse({'error': 'Old and new folder names are required.'}, status=400)
+        
+        if old_folder_name == new_folder_name:
+            return JsonResponse({'status': 'success', 'message': 'Folder name is already up to date.'})
+
+        user = request.user
+
+        # Check if a folder with the new name already exists for this user
+        if Folder.objects.filter(user=user, name=new_folder_name).exists():
+            return JsonResponse({'error': f"A folder named '{new_folder_name}' already exists."}, status=400)
+
+        # Find the folder to rename
+        folder_to_rename = get_object_or_404(Folder, user=user, name=old_folder_name)
+        
+        folder_to_rename.name = new_folder_name
+        folder_to_rename.save(update_fields=['name'])
+
+        return JsonResponse({'status': 'success', 'message': f"Folder '{old_folder_name}' renamed to '{new_folder_name}'."})
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
+    except Folder.DoesNotExist:
+        return JsonResponse({'error': f"Folder '{old_folder_name}' not found."}, status=404)
+    except Exception as e:
+        # Log e
+        return JsonResponse({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
+
+@login_required
+@require_POST
+@transaction.atomic
+def create_folder_api(request):
+    try:
+        data = json.loads(request.body)
+        folder_name = data.get('folder_name', '').strip()
+
+        if not folder_name:
+            return JsonResponse({'error': 'Folder name cannot be empty.'}, status=400)
+
+        user = request.user
+
+        # Check if a folder with this name already exists for the user
+        if Folder.objects.filter(user=user, name=folder_name).exists():
+            return JsonResponse({'error': f"A folder named '{folder_name}' already exists."}, status=400)
+
+        # Create the new folder
+        Folder.objects.create(user=user, name=folder_name)
+
+        return JsonResponse({'status': 'success', 'message': f"Folder '{folder_name}' created successfully."})
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
+    except Exception as e:
+        # Log e for server-side debugging
+        # logger.error(f"Error creating folder: {e}")
+        return JsonResponse({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
+
+@login_required
+@require_POST
+@transaction.atomic
+def delete_folder_api(request):
+    try:
+        data = json.loads(request.body)
+        folder_name = data.get('folder_name')
+
+        if not folder_name:
+            return JsonResponse({'error': 'Folder name is required.'}, status=400)
+
+        user = request.user
+        folder_to_delete = get_object_or_404(Folder, user=user, name=folder_name)
+
+        # Move chats from this folder to "Other Chats" (i.e., set their folder to None)
+        Chat.objects.filter(user=user, folder=folder_to_delete).update(folder=None)
+        
+        # Delete the folder
+        folder_to_delete.delete()
+
+        return JsonResponse({'status': 'success', 'message': f"Folder '{folder_name}' deleted. Chats moved to 'Other Chats'."})
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
+    except Folder.DoesNotExist:
+        return JsonResponse({'error': f"Folder '{folder_name}' not found."}, status=404)
+    except Exception as e:
+        # Log e
+        return JsonResponse({'error': f'An unexpected error occurred: {str(e)}'}, status=500)

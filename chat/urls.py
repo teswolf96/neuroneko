@@ -17,4 +17,8 @@ urlpatterns = [
     path('api/chat/<int:chat_id>/message/<int:message_id>/update_content/', views.update_message_content, name='update_message_content'),
     path('api/chat/<int:chat_id>/rename_title/', views.rename_chat_title, name='rename_chat_title'),
     path('api/chat/<int:chat_id>/delete/', views.delete_chat, name='delete_chat'),
+    # Folder management API URLs
+    path('api/folder/create/', views.create_folder_api, name='create_folder_api'),
+    path('api/folder/rename/', views.rename_folder_api, name='rename_folder_api'),
+    path('api/folder/delete/', views.delete_folder_api, name='delete_folder_api'),
 ]
