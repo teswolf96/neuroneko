@@ -835,16 +835,23 @@
                                 if (chatItemElement) {
                                     chatItemElement.remove();
                                 }
-                                // If the deleted chat was the active one, clear the main display
+                                // If the deleted chat was the active one, try to select the next newest chat
                                 if (currentChatId === chatIdToDelete) {
-                                    chatMessagesContainerEl.innerHTML = '<p class="text-gray-500 p-4">Select a chat to view messages.</p>';
-                                    chatModelNameEl.textContent = 'N/A';
-                                    chatModelTempEl.textContent = 'N/A';
-                                    // chatSystemPromptEl.textContent = 'No system prompt set.';
-                                    currentChatId = null;
-                                    currentActiveChatLi = null; 
+                                    const remainingChatItems = document.querySelectorAll('.chat-item');
+                                    if (remainingChatItems.length > 0) {
+                                        // The first item in the NodeList will be the top-most visible chat,
+                                        // which corresponds to the newest due to Django's ordering.
+                                        remainingChatItems[0].click(); // Programmatically click the new chat item
+                                    } else {
+                                        // No chats left, clear the display
+                                        chatMessagesContainerEl.innerHTML = '<p class="text-gray-500 p-4">No chats available. Create a new one!</p>';
+                                        chatModelNameEl.textContent = 'N/A';
+                                        chatModelTempEl.textContent = 'N/A';
+                                        // chatSystemPromptEl.textContent = 'No system prompt set.';
+                                        currentChatId = null;
+                                        currentActiveChatLi = null;
+                                    }
                                 }
-                                // Potentially select another chat or show a "no chat selected" state
                             } else {
                                 alert('Error deleting chat: ' + (data.message || 'Unknown error'));
                             }
