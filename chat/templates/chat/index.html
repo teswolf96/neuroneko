@@ -730,6 +730,11 @@
 
                     chatLink.style.display = 'none';
 
+                    const chatActionsDivForHiding = chatItem.querySelector('.chat-actions');
+                    if (chatActionsDivForHiding) {
+                        chatActionsDivForHiding.style.display = 'none';
+                    }
+
                     const inputElement = document.createElement('input');
                     inputElement.type = 'text';
                     inputElement.value = originalFullTitle;
@@ -747,6 +752,21 @@
                             chatItem.removeChild(inputElement);
                         }
                         chatLink.style.display = '';
+
+                        const chatActionsDivForRestoring = chatItem.querySelector('.chat-actions');
+                        if (chatActionsDivForRestoring) {
+                            // chat-actions are normally 'flex' when visible, and 'hidden' (display:none) otherwise.
+                            // The 'hidden' class is managed by the main chat item click logic.
+                            // If this chatItem is the currentActiveChatLi, it means its actions should be visible.
+                            if (chatItem === currentActiveChatLi) {
+                                chatActionsDivForRestoring.style.display = 'flex';
+                            } else {
+                                // If it's not the active chat, its actions should remain hidden.
+                                // This case might be rare if rename is only allowed on active,
+                                // but good for robustness.
+                                chatActionsDivForRestoring.style.display = 'none';
+                            }
+                        }
                     }
 
                     inputElement.addEventListener('keypress', function(e) {
