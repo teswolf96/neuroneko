@@ -251,24 +251,121 @@
                     footerDiv.appendChild(plusButtonDiv);
                 }
 
+                // Navigation Arrows for active siblings
+                if (msg.is_active_sibling) {
+                    const navArrowsDiv = document.createElement('div');
+                    navArrowsDiv.classList.add('absolute', 'bottom-0', 'left-0', 'flex', 'space-x-1', 'items-center', 'h-5'); // Centered vertically with h-5
+
+                    const createArrowButton = (text, targetSiblingId, parentMsgId) => {
+                        const arrowButton = document.createElement('button');
+                        arrowButton.innerHTML = text; // e.g., '←' or '→'
+                        arrowButton.title = text === '←' ? 'Previous message' : 'Next message';
+                        arrowButton.classList.add('text-lg', 'hover:text-gray-300', 'focus:outline-none', 'px-1'); // Larger text for arrows
+                        arrowButton.addEventListener('click', function(event) {
+                            event.stopPropagation(); // Prevent other click handlers on messageDiv if any
+
+                            if (!currentChatId || !parentMsgId || !targetSiblingId) {
+                                console.error('Missing IDs for sibling navigation:', currentChatId, parentMsgId, targetSiblingId);
+                                alert('Cannot navigate: missing information.');
+                                return;
+                            }
+                            fetch(`/api/chat/${currentChatId}/set_active_child/`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-CSRFToken': '{{ csrf_token }}'
+                                },
+                                body: JSON.stringify({
+                                    parent_message_id: parentMsgId,
+                                    child_to_activate_id: targetSiblingId
+                                })
+                            })
+                            .then(response => {
+                                if (!response.ok) {
+                                    return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                                }
+                                return response.json();
+                            })
+                            .then(data => {
+                                console.log('Active child set:', data.message);
+                                // Re-fetch chat details to update UI
+                                // Find the currently selected chat list item and click it to refresh
+                                const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                                if (activeChatListItem) {
+                                    activeChatListItem.click();
+                                } else if (currentChatId) { // Fallback if somehow the active class is lost
+                                     const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                                     if (targetChatLink) {
+                                         const targetChatItem = targetChatLink.closest('.chat-item');
+                                         if (targetChatItem) targetChatItem.click();
+                                     }
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error setting active child:', error);
+                                alert('Error navigating messages: ' + error.message);
+                            });
+                        });
+                        return arrowButton;
+                    };
+
+                    const hasPrev = msg.previous_sibling_id !== null && msg.previous_sibling_id !== undefined;
+                    const hasNext = msg.next_sibling_id !== null && msg.next_sibling_id !== undefined;
+
+                    if (hasPrev) {
+                        navArrowsDiv.appendChild(createArrowButton('←', msg.previous_sibling_id, msg.parent_id));
+                    }
+                    if (hasNext) {
+                        navArrowsDiv.appendChild(createArrowButton('→', msg.next_sibling_id, msg.parent_id));
+                    }
+
+                    if (navArrowsDiv.hasChildNodes()) {
+                        footerDiv.appendChild(navArrowsDiv);
+                    }
+                }
+
                 messageDiv.appendChild(footerDiv);
                 container.appendChild(messageDiv);
             }
 
             // Function to render message tree
-            function renderMessageTree(nodes, container, counter) {
-                nodes.forEach((node, index) => {
+            function renderMessageTree(nodesToProcess, container, counter) {
+                nodesToProcess.forEach((currentNode, index) => {
+                    // Determine if the plus icon should be shown for adding a message after this one
                     let showPlus = false;
-                    // Show plus if it has children OR if it's not the last direct sibling
-                    if ((node.children && node.children.length > 0) || index < nodes.length - 1) {
+                    // The original logic for 'showPlus' is about adding a message *below* the current one,
+                    // or as a sibling if it's not the last.
+                    // This seems reasonable to keep as is, as it relates to the *potential* to add,
+                    // not the display of existing children.
+                    if ((currentNode.children && currentNode.children.length > 0) || index < nodesToProcess.length - 1) {
                         showPlus = true;
                     }
-                    renderMessage(node, container, showPlus, counter.value);
+
+                    renderMessage(currentNode, container, showPlus, counter.value); // Render the currentNode
                     counter.value++;
 
-                    if (node.children && node.children.length > 0) {
-                        // Render children directly into the main container without extra div or indentation classes
-                        renderMessageTree(node.children, container, counter);
+                    if (currentNode.children && currentNode.children.length > 0) {
+                        let childrenForNextLevel = [];
+                        if (currentNode.active_child_id) {
+                            childrenForNextLevel = currentNode.children.filter(child => child.id === currentNode.active_child_id);
+                        } else {
+                            // No explicit active_child_id.
+                            // Check if there's an implicitly active child (e.g., a single child that is marked is_active_sibling by backend).
+                            // The backend sets is_active_sibling if it's the active_child OR if it's the only child and no active_child is set.
+                            const implicitlyActiveChild = currentNode.children.find(child => child.is_active_sibling === true);
+                            if (implicitlyActiveChild) {
+                                childrenForNextLevel = [implicitlyActiveChild];
+                            } else {
+                                // No explicit active_child_id and no implicitly active child (e.g., multiple children, none marked active by backend)
+                                // Or if backend logic for is_active_sibling doesn't cover all desired "implicit" cases.
+                                // For safety, if no active_child_id, we render no children unless one is marked is_active_sibling.
+                                childrenForNextLevel = [];
+                            }
+                        }
+
+                        if (childrenForNextLevel.length > 0) {
+                            renderMessageTree(childrenForNextLevel, container, counter);
+                        }
                     }
                 });
             }
@@ -400,12 +497,20 @@
                     })
                     .then(data => {
                         if (data.status === 'success' && data.message) {
-                            // Append the new message to the UI
-                            // A newly added message is last and has no children yet, so showPlusIcon is false.
-                            const existingMessagesCount = chatMessagesContainerEl.querySelectorAll('[data-message-id]').length;
-                            renderMessage(data.message, chatMessagesContainerEl, false, existingMessagesCount);
-                            chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
-                            messageInputTextarea.value = ''; // Clear textarea
+                            messageInputTextarea.value = ''; // Clear textarea first
+
+                            // Re-fetch and re-render the whole chat to apply new tree logic
+                            const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                            if (activeChatListItem) {
+                                activeChatListItem.click(); 
+                            } else if (currentChatId) { // Fallback if the active class is lost but we have the ID
+                                 const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                                 if (targetChatLink) {
+                                     const targetChatItem = targetChatLink.closest('.chat-item');
+                                     if (targetChatItem) targetChatItem.click();
+                                 }
+                            }
+                            // chatMessagesContainerEl.scrollTop will be handled by the re-render logic in chat item click
                         } else {
                             alert('Error saving message: ' + (data.error || 'Unknown error'));
                         }

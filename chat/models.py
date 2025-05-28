@@ -66,6 +66,20 @@ class Message(models.Model):
     parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children', help_text="Parent message in a threaded conversation (optional)")
     chat = models.ForeignKey('Chat', on_delete=models.CASCADE, related_name='messages', help_text="The chat session this message belongs to")
     created_at = models.DateTimeField(auto_now_add=True, null=True) # Added for sorting messages
+    active_child = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+        help_text="The active child message, if this message has children and one is designated as active."
+    )
+
+    def save(self, *args, **kwargs):
+        if self.active_child and self.active_child.parent != self:
+            # Or self.active_child.parent_id != self.id if self.id is already set and self.active_child.parent_id is available
+            raise ValueError("The active_child must be a direct child of this message.")
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.role}: {self.message[:50]}... (Chat: {self.chat.title})"

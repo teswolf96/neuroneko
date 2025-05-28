@@ -10,4 +10,5 @@ urlpatterns = [
     path('api/chat/<int:chat_id>/', views.get_chat_details, name='get_chat_details'),
     path('api/chat/<int:chat_id>/add_message/', views.add_message_to_chat, name='add_message_to_chat'),
     path('api/chat/<int:chat_id>/message/<int:message_id>/update_role/', views.update_message_role, name='update_message_role'),
+    path('api/chat/<int:chat_id>/set_active_child/', views.set_active_child_view, name='set_active_child'),
 ]

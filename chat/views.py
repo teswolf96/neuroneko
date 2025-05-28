@@ -9,6 +9,39 @@ from .models import Chat, Folder, UserSettings, Message # Added Message
 from .forms import UserSettingsForm
 
 @login_required
+@require_POST
+def set_active_child_view(request, chat_id):
+    try:
+        data = json.loads(request.body)
+        parent_message_id = data.get('parent_message_id')
+        child_to_activate_id = data.get('child_to_activate_id')
+
+        if not parent_message_id or not child_to_activate_id:
+            return JsonResponse({'error': 'Parent message ID and child to activate ID are required.'}, status=400)
+
+        chat = get_object_or_404(Chat, pk=chat_id, user=request.user)
+        parent_message = get_object_or_404(Message, pk=parent_message_id, chat=chat)
+        child_to_activate = get_object_or_404(Message, pk=child_to_activate_id, chat=chat)
+
+        if child_to_activate.parent != parent_message:
+            return JsonResponse({'error': 'Specified child is not a direct child of the specified parent message.'}, status=400)
+
+        parent_message.active_child = child_to_activate
+        parent_message.save(update_fields=['active_child'])
+
+        return JsonResponse({'status': 'success', 'message': 'Active child updated successfully.'})
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
+    except Chat.DoesNotExist:
+        return JsonResponse({'error': 'Chat not found.'}, status=404)
+    except Message.DoesNotExist:
+        return JsonResponse({'error': 'Message not found.'}, status=404)
+    except Exception as e:
+        # Log e
+        return JsonResponse({'error': str(e)}, status=500)
+
+@login_required
 def index(request):
     current_user = request.user
     
@@ -90,46 +123,87 @@ def get_chat_details(request, chat_id):
     
     messages_data_for_response = []
     if chat.root_message_id:
-        all_chat_messages = list(chat.messages.all().order_by('created_at'))
+        # Fetch all messages for the chat, ordered by created_at, and include related parent
+        all_chat_message_objects = list(chat.messages.select_related('parent', 'active_child').all().order_by('created_at'))
+        
+        # Store Message objects by ID for quick lookup
+        all_messages_map = {msg.id: msg for msg in all_chat_message_objects}
 
-        message_nodes = {}
-        # Initialize all nodes
-        for msg in all_chat_messages:
-            message_nodes[msg.id] = {
-                'id': msg.id, # Include message ID
-                'role': msg.role,
-                'content': msg.message,
-                'created_at': msg.created_at.isoformat() if msg.created_at else None,
-                'children': []
+        # This will store the serialized nodes for the tree
+        serialized_nodes = {}
+
+        for msg_obj in all_chat_message_objects:
+            parent_obj = all_messages_map.get(msg_obj.parent_id) if msg_obj.parent_id else None
+            
+            node_data = {
+                'id': msg_obj.id,
+                'role': msg_obj.role,
+                'content': msg_obj.message,
+                'created_at': msg_obj.created_at.isoformat() if msg_obj.created_at else None,
+                'parent_id': msg_obj.parent_id,
+                'children': [],
+                'active_child_id': msg_obj.active_child_id,
+                'is_active_sibling': False,
+                'previous_sibling_id': None,
+                'next_sibling_id': None,
             }
 
-        # Build the tree structure
-        # We will create a new dictionary for the actual tree to avoid modifying while iterating if issues arise
-        # However, direct modification of message_nodes[parent_id]['children'] is usually fine.
-        
-        # Temporary dictionary to hold fully formed tree nodes
-        # This helps ensure we are appending actual node dictionaries to children lists
-        # and not just references that might get altered unexpectedly if we were rebuilding message_nodes.
-        
-        # We will build the tree directly within message_nodes.
-        # The root_nodes list will store the actual root(s) of any trees.
-        # In our case, we expect one primary root: chat.root_message.
-        
-        # Link children to their parents
-        # Iterate through the original list of messages to ensure parent_id access
-        for msg in all_chat_messages:
-            if msg.parent_id:
-                if msg.parent_id in message_nodes and msg.id in message_nodes:
-                    parent_node = message_nodes[msg.parent_id]
-                    child_node = message_nodes[msg.id]
-                    parent_node['children'].append(child_node)
-                    # Ensure children are sorted by creation time if not already guaranteed
-                    # parent_node['children'].sort(key=lambda x: x['created_at']) # Usually not needed if all_chat_messages is sorted
+            if parent_obj:
+                # Determine if this message is the active child of its parent
+                if parent_obj.active_child_id == msg_obj.id:
+                    node_data['is_active_sibling'] = True
+                elif not parent_obj.active_child_id:
+                    # If no explicit active child, check if it's the only child
+                    # Need to query children of parent_obj directly or filter all_messages_map
+                    parent_children_ids = [m.id for m_id, m in all_messages_map.items() if m.parent_id == parent_obj.id]
+                    if len(parent_children_ids) == 1 and parent_children_ids[0] == msg_obj.id:
+                        node_data['is_active_sibling'] = True
+                
+                # Get siblings of current message, ordered by creation_at
+                siblings_of_current_message = sorted(
+                    [m for m_id, m in all_messages_map.items() if m.parent_id == parent_obj.id],
+                    key=lambda m_item: m_item.created_at 
+                )
+                
+                try:
+                    current_index = [s.id for s in siblings_of_current_message].index(msg_obj.id)
+                    if current_index > 0:
+                        node_data['previous_sibling_id'] = siblings_of_current_message[current_index - 1].id
+                    if current_index < len(siblings_of_current_message) - 1:
+                        node_data['next_sibling_id'] = siblings_of_current_message[current_index + 1].id
+                except ValueError:
+                    # This can happen if a message's parent_id points to a message not in all_messages_map (e.g. deleted parent)
+                    # Or if msg_obj itself is not found among its supposed siblings (data integrity issue)
+                    pass # Log error if necessary
 
-        # The response should contain the root message of the chat, with all descendants nested.
-        if chat.root_message_id in message_nodes:
-            messages_data_for_response.append(message_nodes[chat.root_message_id])
-    
+            serialized_nodes[msg_obj.id] = node_data
+
+        # Build the tree structure from serialized_nodes
+        for node_id, current_node_dict in serialized_nodes.items():
+            parent_id = current_node_dict.get('parent_id')
+            if parent_id and parent_id in serialized_nodes:
+                parent_node_dict = serialized_nodes[parent_id]
+                
+                # Simple cycle check: if this node's ID is the parent_id of its designated parent_node_dict,
+                # it forms a direct 2-cycle (e.g., A's parent is B, B's parent is A).
+                # To break the cycle for JSON serialization, we avoid adding current_node_dict as a child in this case.
+                if parent_node_dict.get('parent_id') == node_id:
+                    # This check is for parent_node_dict's own parent_id.
+                    # If parent_node_dict's parent is current_node_dict, then current_node_dict should not be a child of parent_node_dict.
+                    print(f"Warning: Detected potential 2-cycle involving {node_id} and {parent_id}. "
+                          f"Not linking {node_id} as child of {parent_id} if {parent_id}'s parent is {node_id}.")
+                    continue # Skip appending this child to break the cycle
+
+                parent_node_dict['children'].append(current_node_dict)
+        
+        # Sort children lists after all children have been appended
+        for node_val_dict in serialized_nodes.values():
+            if node_val_dict['children']: # Check if 'children' list is not empty
+                node_val_dict['children'].sort(key=lambda x: x['created_at'])
+        
+        if chat.root_message_id in serialized_nodes:
+            messages_data_for_response.append(serialized_nodes[chat.root_message_id])
+            
     chat_data = {
         'id': chat.id,
         'title': chat.title,
@@ -177,17 +251,46 @@ def add_message_to_chat(request, chat_id):
                 role='user',  # Assuming 'user' for messages saved via this button
                 parent=parent_message
             )
+
+            if parent_message:
+                parent_message.active_child = new_message
+                parent_message.save(update_fields=['active_child'])
             
-            # Optionally, prepare data for the new message to send back
-            message_data = {
+            # Prepare data for the new message to send back, including sibling info
+            new_message_data = {
                 'id': new_message.id,
                 'role': new_message.role,
                 'content': new_message.message,
                 'created_at': new_message.created_at.isoformat() if new_message.created_at else None,
-                'parent_id': parent_message.id if parent_message else None,
-                'children': [] # New messages don't have children yet
+                'parent_id': new_message.parent_id,
+                'children': [], 
+                'active_child_id': None, 
+                'is_active_sibling': True, # A new message becomes the active sibling
+                'previous_sibling_id': None,
+                'next_sibling_id': None,
             }
-            return JsonResponse({'status': 'success', 'message': message_data}, status=201)
+
+            if parent_message:
+                # Get siblings of new_message (children of parent_message)
+                # Ensure new_message is included if the query is cached or doesn't see it yet
+                # Re-fetch parent_message with children to be safe or add new_message to a local list
+                siblings = list(parent_message.children.all().order_by('created_at'))
+                try:
+                    # Find new_message among its siblings
+                    current_index = -1
+                    for i, s in enumerate(siblings):
+                        if s.id == new_message.id:
+                            current_index = i
+                            break
+                    
+                    if current_index != -1 and current_index > 0:
+                        new_message_data['previous_sibling_id'] = siblings[current_index - 1].id
+                    # A new message is typically the last, so no next_sibling_id among *previously existing* ones.
+                    # If other messages could be added concurrently, this logic might need adjustment or rely on client re-fetch.
+                except ValueError: 
+                    pass # Should not happen if new_message is correctly parented
+
+            return JsonResponse({'status': 'success', 'message': new_message_data}, status=201)
 
         except json.JSONDecodeError:
             return JsonResponse({'error': 'Invalid JSON.'}, status=400)
