@@ -52,7 +52,7 @@
         <div class="bg-gray-800 p-4 rounded"> <!-- Added mb-4 for spacing -->
             <div class="flex items-center justify-between text-sm mb-2">
                 <span>Model: <span id="chat-model-name">claude-3-7-sonnet-20250219</span></span>
-                <span>Max Token: 10000</span>
+                <span>Max Output: 64000</span>
                 <span>Temperature: <span id="chat-model-temp">0.8</span></span>
                 <!-- <span>Top-p: 1</span>
                 <span>Presence Penalty: 0</span>
@@ -103,10 +103,53 @@
             const chatModelTempEl = document.getElementById('chat-model-temp');
             const chatSystemPromptEl = document.getElementById('chat-system-prompt');
             const chatMessagesContainerEl = document.getElementById('chat-messages-container');
-            // const messageInputTextarea = document.querySelector('textarea[placeholder="Type a message or click / for prompts..."]');
+            const messageInputTextarea = document.querySelector('textarea[placeholder="Type a message or click / for prompts..."]');
+            const saveButton = document.querySelector('button.bg-gray-600.px-4.py-2.rounded.w-full'); // More specific selector if needed
 
             let currentActiveChatLi = null;
+            let currentChatId = null; // To store the ID of the currently active chat
             const lastActiveChatIdFromDjango = '{{ last_active_chat_id|default_if_none:"" }}';
+
+            // Function to render a single message
+            function renderMessage(msg, container) {
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('p-3', 'rounded-lg', 'break-words', 'mb-2');
+                messageDiv.setAttribute('data-message-id', msg.id); // Add message ID
+
+                const roleSpan = document.createElement('span');
+                roleSpan.classList.add('font-semibold', 'text-xs', 'block', 'mb-1');
+
+                const contentP = document.createElement('p');
+                contentP.classList.add('text-sm');
+                contentP.textContent = msg.content;
+
+                if (msg.role === 'user') {
+                    messageDiv.classList.add('bg-indigo-500', 'ml-auto', 'text-white');
+                    roleSpan.textContent = 'User';
+                    roleSpan.classList.add('text-indigo-200');
+                } else { // assistant or other roles
+                    messageDiv.classList.add('bg-gray-600', 'mr-auto', 'text-gray-100');
+                    roleSpan.textContent = 'Assistant'; // Or msg.role capitalized
+                    roleSpan.classList.add('text-gray-400');
+                }
+
+                messageDiv.appendChild(roleSpan);
+                messageDiv.appendChild(contentP);
+                container.appendChild(messageDiv);
+            }
+
+            // Function to render message tree
+            function renderMessageTree(messages, container) {
+                messages.forEach(msgNode => {
+                    renderMessage(msgNode, container);
+                    if (msgNode.children && msgNode.children.length > 0) {
+                        // Recursively render children, perhaps with indentation or different styling
+                        // For now, just append them linearly for simplicity, matching current behavior
+                        renderMessageTree(msgNode.children, container);
+                    }
+                });
+            }
+
 
             chatItems.forEach(item => {
                 item.addEventListener('click', function (event) {
@@ -114,8 +157,10 @@
                     const chatLink = this.querySelector('.chat-link');
                     if (!chatLink) return;
 
-                    const chatId = chatLink.dataset.chatId;
-                    if (!chatId) return;
+                    const chatIdFromLink = chatLink.dataset.chatId;
+                    if (!chatIdFromLink) return;
+
+                    currentChatId = chatIdFromLink; // Store the active chat ID
 
                     if (currentActiveChatLi) {
                         currentActiveChatLi.classList.remove('bg-blue-600', 'text-white'); // Example active class
@@ -125,7 +170,7 @@
                     this.classList.remove('hover:bg-gray-700');
                     currentActiveChatLi = this;
 
-                    fetch(`/api/chat/${chatId}/`)
+                    fetch(`/api/chat/${currentChatId}/`)
                         .then(response => {
                             if (!response.ok) {
                                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -133,38 +178,14 @@
                             return response.json();
                         })
                         .then(data => {
-                            console.log(data)
+                            console.log("Chat details:", data);
                             chatModelNameEl.textContent = data.ai_model_name || 'N/A';
                             chatModelTempEl.textContent = data.temperature || 'N/A';
-                            //chatSystemPromptEl.textContent = data.system_prompt || 'No system prompt set.';
+                            // chatSystemPromptEl.textContent = data.system_prompt || 'No system prompt set.';
                             
                             chatMessagesContainerEl.innerHTML = ''; 
                             if (data.messages && data.messages.length > 0) {
-                                data.messages.forEach(msg => {
-                                    const messageDiv = document.createElement('div');
-                                    messageDiv.classList.add('p-3', 'rounded-lg', 'break-words', 'mb-2'); 
-                                    
-                                    const roleSpan = document.createElement('span');
-                                    roleSpan.classList.add('font-semibold', 'text-xs', 'block', 'mb-1'); // text-xs for smaller role
-                                   
-                                    const contentP = document.createElement('p');
-                                    contentP.classList.add('text-sm');
-                                    contentP.textContent = msg.content;
-
-                                    if (msg.role === 'user') {
-                                        messageDiv.classList.add('bg-indigo-500', 'ml-auto', 'text-white'); 
-                                        roleSpan.textContent = 'User';
-                                        roleSpan.classList.add('text-indigo-200');
-                                    } else { // assistant or other roles
-                                        messageDiv.classList.add('bg-gray-600', 'mr-auto', 'text-gray-100'); 
-                                        roleSpan.textContent = 'Assistant'; // Or msg.role capitalized
-                                        roleSpan.classList.add('text-gray-400');
-                                    }
-                                    
-                                    messageDiv.appendChild(roleSpan);
-                                    messageDiv.appendChild(contentP);
-                                    chatMessagesContainerEl.appendChild(messageDiv);
-                                });
+                                renderMessageTree(data.messages, chatMessagesContainerEl);
                             } else {
                                 chatMessagesContainerEl.innerHTML = '<p class="text-gray-500 p-4">No messages in this chat yet.</p>';
                             }
@@ -183,11 +204,11 @@
 
             // Automatically click the last active chat if it exists
             if (lastActiveChatIdFromDjango && lastActiveChatIdFromDjango !== '') {
+                currentChatId = lastActiveChatIdFromDjango; // Set currentChatId if loading last active
                 const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${lastActiveChatIdFromDjango}"]`);
                 if (targetChatLink) {
                     const targetChatItem = targetChatLink.closest('.chat-item');
                     if (targetChatItem) {
-                        // The existing click handler on 'targetChatItem' will be triggered
                         targetChatItem.click(); 
                     } else {
                         console.warn(`Could not find .chat-item for chat ID: ${lastActiveChatIdFromDjango}`);
@@ -195,6 +216,81 @@
                 } else {
                     console.warn(`Could not find .chat-link for chat ID: ${lastActiveChatIdFromDjango}`);
                 }
+            }
+
+            // Save button functionality
+            if (saveButton) {
+                saveButton.addEventListener('click', function() {
+                    const messageContent = messageInputTextarea.value.trim();
+                    if (!messageContent) {
+                        alert('Please type a message to save.');
+                        return;
+                    }
+                    if (!currentChatId) {
+                        alert('Please select a chat first.');
+                        return;
+                    }
+
+                    // Find the newest message ID in the current chat display to use as parent
+                    const allMessageElements = chatMessagesContainerEl.querySelectorAll('[data-message-id]');
+                    let parentMessageId = null;
+                    if (allMessageElements.length > 0) {
+                        parentMessageId = allMessageElements[allMessageElements.length - 1].dataset.messageId;
+                    } else {
+                        // This case should ideally be handled by ensuring the root message exists and is loaded.
+                        // If there are truly no messages, the backend might need to handle creating a root message
+                        // or the first message if parent_message_id is null.
+                        // For now, we'll proceed, and the backend will require a parent_message_id.
+                        // This implies the first message (assistant's welcome) should have an ID.
+                        console.warn("No messages found in container to set as parent. The backend might require a root message to exist.");
+                        // If the chat is truly empty and the backend expects a root, this will fail.
+                        // The backend logic currently requires a parent_message_id.
+                        // A robust solution would be for get_chat_details to always return at least the root message if it exists.
+                        // And if the chat is brand new and empty, the first "saved" message might become the root.
+                        // This specific task is "add a new child message to the newest child Message", so a parent is implied.
+                        alert('Cannot save message: No parent message found in the current chat display.');
+                        return;
+                    }
+                     if (!parentMessageId) {
+                        alert('Cannot determine the parent message ID.');
+                        return;
+                    }
+
+
+                    fetch(`/api/chat/${currentChatId}/add_message/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}' // Ensure CSRF token is available and correct
+                        },
+                        body: JSON.stringify({
+                            message_content: messageContent,
+                            parent_message_id: parentMessageId
+                        })
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.status === 'success' && data.message) {
+                            // Append the new message to the UI
+                            renderMessage(data.message, chatMessagesContainerEl);
+                            chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
+                            messageInputTextarea.value = ''; // Clear textarea
+                        } else {
+                            alert('Error saving message: ' + (data.error || 'Unknown error'));
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error saving message:', error);
+                        alert('Error saving message: ' + error.message);
+                    });
+                });
+            } else {
+                console.warn("Save button not found.");
             }
         });
     </script>
