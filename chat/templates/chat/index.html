@@ -111,9 +111,9 @@
             const lastActiveChatIdFromDjango = '{{ last_active_chat_id|default_if_none:"" }}';
 
             // Function to render a single message
-            function renderMessage(msg, container, showPlusIcon) {
+            function renderMessage(msg, container, showPlusIcon, messageIndex) {
                 const messageDiv = document.createElement('div');
-                messageDiv.classList.add('p-3', 'rounded-lg', 'break-words', 'mb-2', 'relative'); // Added relative for icon positioning
+                messageDiv.classList.add('p-3', 'rounded-lg', 'break-words', 'mb-2', 'relative', 'text-gray-100'); // Added relative for icon positioning and default text color
                 messageDiv.setAttribute('data-message-id', msg.id);
 
                 // Role Dropdown
@@ -132,17 +132,63 @@
                     roleSelect.appendChild(option);
                 });
 
+                // Event listener for role change
+                roleSelect.addEventListener('change', function() {
+                    const messageId = messageDiv.dataset.messageId;
+                    const newRole = this.value;
+                    if (!currentChatId || !messageId) {
+                        console.error('Chat ID or Message ID is missing for role update.');
+                        alert('Could not update role: Chat or Message ID missing.');
+                        return;
+                    }
+
+                    fetch(`/api/chat/${currentChatId}/message/${messageId}/update_role/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}' // Make sure CSRF token is available
+                        },
+                        body: JSON.stringify({ new_role: newRole })
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('Role update successful:', data.message);
+                        // Optionally, provide user feedback, e.g., a small temporary notification
+                        // For now, just logging. The visual change is immediate due to dropdown selection.
+                    })
+                    .catch(error => {
+                        console.error('Error updating message role:', error);
+                        alert('Error updating role: ' + error.message);
+                        // Optionally, revert the dropdown if the backend update fails
+                        // For now, we leave it as is, assuming the user might retry or it's a transient issue.
+                    });
+                });
+
                 const contentP = document.createElement('p');
                 contentP.classList.add('text-sm');
                 contentP.textContent = msg.content;
 
-                if (msg.role === 'user') {
-                    messageDiv.classList.add('bg-indigo-500', 'ml-auto', 'text-white');
-                    roleSelect.classList.remove('bg-gray-500', 'text-white');
-                    roleSelect.classList.add('bg-indigo-400', 'text-indigo-100');
-                } else { // assistant or system roles
-                    messageDiv.classList.add('bg-gray-600', 'mr-auto', 'text-gray-100');
+                // Alternating grey backgrounds
+                if (messageIndex % 2 === 0) {
+                    messageDiv.classList.add('bg-gray-600');
+                } else {
+                    messageDiv.classList.add('bg-gray-700');
                 }
+
+                // Alignment based on role
+                if (msg.role === 'user') {
+                    messageDiv.classList.add('ml-auto');
+                } else { // assistant or system roles
+                    messageDiv.classList.add('mr-auto');
+                }
+                // Ensure roleSelect has consistent styling
+                roleSelect.classList.add('bg-gray-500', 'text-white');
+
 
                 messageDiv.appendChild(roleSelect);
                 messageDiv.appendChild(contentP);
@@ -159,6 +205,23 @@
                 copyButton.innerHTML = '📄'; // Unicode for Copy
                 copyButton.title = 'Copy';
                 copyButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none');
+                copyButton.addEventListener('click', function() {
+                    const textToCopy = contentP.textContent;
+                    navigator.clipboard.writeText(textToCopy)
+                        .then(() => {
+                            // Optional: Provide feedback to the user, e.g., change icon or show a tooltip
+                            copyButton.innerHTML = '✅'; // Checkmark to indicate success
+                            copyButton.title = 'Copied!';
+                            setTimeout(() => {
+                                copyButton.innerHTML = '📄'; // Revert to original icon
+                                copyButton.title = 'Copy';
+                            }, 1500); // Revert after 1.5 seconds
+                        })
+                        .catch(err => {
+                            console.error('Failed to copy text: ', err);
+                            alert('Failed to copy text. Your browser might not support this feature or permission was denied.');
+                        });
+                });
 
                 const editButton = document.createElement('button');
                 editButton.innerHTML = '✏️'; // Unicode for Edit
@@ -193,18 +256,19 @@
             }
 
             // Function to render message tree
-            function renderMessageTree(nodes, container) {
+            function renderMessageTree(nodes, container, counter) {
                 nodes.forEach((node, index) => {
                     let showPlus = false;
                     // Show plus if it has children OR if it's not the last direct sibling
                     if ((node.children && node.children.length > 0) || index < nodes.length - 1) {
                         showPlus = true;
                     }
-                    renderMessage(node, container, showPlus);
+                    renderMessage(node, container, showPlus, counter.value);
+                    counter.value++;
 
                     if (node.children && node.children.length > 0) {
                         // Render children directly into the main container without extra div or indentation classes
-                        renderMessageTree(node.children, container);
+                        renderMessageTree(node.children, container, counter);
                     }
                 });
             }
@@ -244,7 +308,8 @@
                             
                             chatMessagesContainerEl.innerHTML = ''; // Clear previous messages
                             if (data.messages && data.messages.length > 0) {
-                                renderMessageTree(data.messages, chatMessagesContainerEl);
+                                let messageCounter = { value: 0 };
+                                renderMessageTree(data.messages, chatMessagesContainerEl, messageCounter);
                             } else {
                                 chatMessagesContainerEl.innerHTML = '<p class="text-gray-500 p-4">No messages in this chat yet.</p>';
                             }
@@ -337,7 +402,8 @@
                         if (data.status === 'success' && data.message) {
                             // Append the new message to the UI
                             // A newly added message is last and has no children yet, so showPlusIcon is false.
-                            renderMessage(data.message, chatMessagesContainerEl, false);
+                            const existingMessagesCount = chatMessagesContainerEl.querySelectorAll('[data-message-id]').length;
+                            renderMessage(data.message, chatMessagesContainerEl, false, existingMessagesCount);
                             chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
                             messageInputTextarea.value = ''; // Clear textarea
                         } else {

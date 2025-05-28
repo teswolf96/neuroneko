@@ -1,7 +1,9 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponseBadRequest
+from django.views.decorators.http import require_POST
+import json
 
 from .models import Chat, Folder, UserSettings, Message # Added Message
 from .forms import UserSettingsForm
@@ -194,3 +196,37 @@ def add_message_to_chat(request, chat_id):
             return JsonResponse({'error': str(e)}, status=500)
     else:
         return JsonResponse({'error': 'Only POST requests are allowed.'}, status=405)
+
+@login_required
+@require_POST # Ensures this view only accepts POST requests
+def update_message_role(request, chat_id, message_id):
+    try:
+        data = json.loads(request.body)
+        new_role = data.get('new_role')
+
+        if not new_role:
+            return JsonResponse({'error': 'New role is required.'}, status=400)
+
+        # Validate the role value if necessary (e.g., against a list of allowed roles)
+        allowed_roles = ['user', 'assistant', 'system']
+        if new_role.lower() not in allowed_roles:
+            return JsonResponse({'error': f'Invalid role specified. Must be one of {", ".join(allowed_roles)}.'}, status=400)
+
+        chat = get_object_or_404(Chat, pk=chat_id, user=request.user)
+        message_to_update = get_object_or_404(Message, pk=message_id, chat=chat)
+
+        message_to_update.role = new_role.lower() # Ensure role is stored in lowercase or as per model's expectation
+        message_to_update.save(update_fields=['role'])
+
+        return JsonResponse({'status': 'success', 'message': 'Role updated successfully.'})
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
+    except Chat.DoesNotExist:
+        return JsonResponse({'error': 'Chat not found or you do not have permission to access it.'}, status=404)
+    except Message.DoesNotExist:
+        return JsonResponse({'error': 'Message not found in this chat.'}, status=404)
+    except Exception as e:
+        # Log the exception e for server-side debugging
+        # logger.error(f"Error updating message role: {e}")
+        return JsonResponse({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
