@@ -1,651 +1,618 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.contrib import messages
-from django.http import JsonResponse, HttpResponseBadRequest, Http404
+from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
+from django.contrib.auth import login, logout
+from django.urls import reverse
+from django.http import JsonResponse, HttpResponseForbidden, HttpResponseBadRequest
 from django.views.decorators.http import require_POST
-from django.db import transaction # Added for atomic transactions
-import json
+from django.db import transaction
+from django.contrib import messages
 
-from .models import Chat, Folder, UserSettings, Message, AIModel # Added Message and AIModel
-from .forms import UserSettingsForm
+from .models import Chat, Message, Folder, UserSettings, AIEndpoint, AIModel
+from .forms import UserSettingsForm, AIEndpointForm, AIModelForm
 
-@login_required
-@require_POST
-def set_active_child_view(request, chat_id):
-    try:
-        data = json.loads(request.body)
-        parent_message_id = data.get('parent_message_id')
-        child_to_activate_id = data.get('child_to_activate_id')
-
-        if not parent_message_id or not child_to_activate_id:
-            return JsonResponse({'error': 'Parent message ID and child to activate ID are required.'}, status=400)
-
-        chat = get_object_or_404(Chat, pk=chat_id, user=request.user)
-        parent_message = get_object_or_404(Message, pk=parent_message_id, chat=chat)
-        child_to_activate = get_object_or_404(Message, pk=child_to_activate_id, chat=chat)
-
-        if child_to_activate.parent != parent_message:
-            return JsonResponse({'error': 'Specified child is not a direct child of the specified parent message.'}, status=400)
-
-        parent_message.active_child = child_to_activate
-        parent_message.save(update_fields=['active_child'])
-
-        return JsonResponse({'status': 'success', 'message': 'Active child updated successfully.'})
-
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
-    except Chat.DoesNotExist:
-        return JsonResponse({'error': 'Chat not found.'}, status=404)
-    except Message.DoesNotExist:
-        return JsonResponse({'error': 'Message not found.'}, status=404)
-    except Exception as e:
-        # Log e
-        return JsonResponse({'error': str(e)}, status=500)
 
 @login_required
-def index(request):
-    current_user = request.user
-    
-    organized_data = []
+def index_view(request):
+    user_settings, created = UserSettings.objects.get_or_create(user=request.user)
+    last_active_chat_id = user_settings.last_active_chat_id if user_settings.last_active_chat else None
 
-    # Get user's folders and their chats
-    # Ensure the related_name 'chats_in_folder' matches your Chat model's ForeignKey to Folder
-    user_folders = Folder.objects.filter(user=current_user).prefetch_related('chats_in_folder').order_by('name')
-    
-    for folder in user_folders:
-        organized_data.append({
-            'id': folder.id,
-            'name': folder.name,
-            'chats': list(folder.chats_in_folder.all().order_by('-created_at')) 
-        })
+    # Prepare folder structure
+    folders = Folder.objects.filter(user=request.user).prefetch_related('chats_in_folder').order_by('name')
+    folder_structure = []
+    chats_in_folders_ids = set()
 
-    # Get chats not in any folder ("Other Chats") for the current user
-    other_chats_list = list(Chat.objects.filter(user=current_user, folder__isnull=True).order_by('-created_at'))
-    
-    # Add "Other Chats" section, it will be present even if empty
-    organized_data.append({
-        'id': None, # Using None for ID to signify it's not a real folder
-        'name': "Other Chats",
-        'chats': other_chats_list
-    })
+    for folder in folders:
+        folder_chats = list(folder.chats_in_folder.all().order_by('-created_at')) # Order chats in folder
+        folder_structure.append({'name': folder.name, 'chats': folder_chats})
+        for chat in folder_chats:
+            chats_in_folders_ids.add(chat.id)
 
-    last_active_chat_id = None
-    if hasattr(request.user, 'settings') and request.user.settings.last_active_chat:
-        last_active_chat_id = request.user.settings.last_active_chat.id
-        
+    # Chats not in any folder
+    other_chats = Chat.objects.filter(user=request.user).exclude(id__in=chats_in_folders_ids).order_by('-created_at')
+    if other_chats.exists():
+        folder_structure.append({'name': "Other Chats", 'chats': list(other_chats)})
+    
+    # If no folders and no other chats, ensure "Other Chats" is not added if it would be empty.
+    # The above logic handles this by only adding "Other Chats" if other_chats.exists().
+
     return render(request, 'chat/index.html', {
-        'folder_structure': organized_data,
+        'folder_structure': folder_structure,
         'last_active_chat_id': last_active_chat_id
     })
 
 @login_required
-def manage_user_settings(request):
-    user_settings, created = UserSettings.objects.get_or_create(
-        user=request.user,
-        defaults={'system_prompt': "You are playing the role of a friendly and helpful chatbot."} # Ensure default is set if created
-    )
-
+def user_settings_view(request):
+    user_settings, created = UserSettings.objects.get_or_create(user=request.user)
     if request.method == 'POST':
-        form = UserSettingsForm(request.POST, instance=user_settings)
+        form = UserSettingsForm(request.POST, instance=user_settings, user=request.user)
         if form.is_valid():
             form.save()
-            messages.success(request, 'Your settings have been updated successfully!')
-            return redirect('user_settings') # Redirect to the same page
+            messages.success(request, 'Settings updated successfully!')
+            return redirect('user_settings')
     else:
-        form = UserSettingsForm(instance=user_settings)
-
+        form = UserSettingsForm(instance=user_settings, user=request.user)
     return render(request, 'chat/user_settings.html', {'form': form})
 
+# API Endpoint Views
 @login_required
-def get_chat_details(request, chat_id):
-    chat = get_object_or_404(Chat, pk=chat_id, user=request.user)
-    
-    # Update last_active_chat for the user
-    user_settings, created = UserSettings.objects.get_or_create(user=request.user)
-    user_settings.last_active_chat = chat
-    user_settings.save(update_fields=['last_active_chat'])
-
-    # Ensure UserSettings exist, or create with defaults if necessary.
-    # The signal handler in models.py should create UserSettings on User creation.
-    # However, to be robust, especially if users existed before the signal:
-    user_settings, created = UserSettings.objects.get_or_create(
-        user=request.user,
-        defaults={
-            'system_prompt': "You are playing the role of a friendly and helpful chatbot.",
-            # Add other defaults from UserSettings model if needed
-        }
-    )
-
-    ai_model_name = "Default Model" # Fallback
-    if chat.ai_model_used:
-        ai_model_name = chat.ai_model_used.name
-    elif user_settings.default_model:
-        ai_model_name = user_settings.default_model.name
-    
-    messages_data_for_response = []
-    if chat.root_message_id:
-        # Fetch all messages for the chat, ordered by created_at, and include related parent
-        all_chat_message_objects = list(chat.messages.select_related('parent', 'active_child').all().order_by('created_at'))
-        
-        # Store Message objects by ID for quick lookup
-        all_messages_map = {msg.id: msg for msg in all_chat_message_objects}
-
-        # This will store the serialized nodes for the tree
-        serialized_nodes = {}
-
-        for msg_obj in all_chat_message_objects:
-            parent_obj = all_messages_map.get(msg_obj.parent_id) if msg_obj.parent_id else None
-            
-            node_data = {
-                'id': msg_obj.id,
-                'role': msg_obj.role,
-                'content': msg_obj.message,
-                'created_at': msg_obj.created_at.isoformat() if msg_obj.created_at else None,
-                'parent_id': msg_obj.parent_id,
-                'children': [],
-                'active_child_id': msg_obj.active_child_id,
-                'is_active_sibling': False,
-                'previous_sibling_id': None,
-                'next_sibling_id': None,
-            }
-
-            if parent_obj:
-                # Determine if this message is the active child of its parent
-                if parent_obj.active_child_id == msg_obj.id:
-                    node_data['is_active_sibling'] = True
-                elif not parent_obj.active_child_id:
-                    # If no explicit active child, check if it's the only child
-                    # Need to query children of parent_obj directly or filter all_messages_map
-                    parent_children_ids = [m.id for m_id, m in all_messages_map.items() if m.parent_id == parent_obj.id]
-                    if len(parent_children_ids) == 1 and parent_children_ids[0] == msg_obj.id:
-                        node_data['is_active_sibling'] = True
-                
-                # Get siblings of current message, ordered by creation_at
-                siblings_of_current_message = sorted(
-                    [m for m_id, m in all_messages_map.items() if m.parent_id == parent_obj.id],
-                    key=lambda m_item: m_item.created_at 
-                )
-                
-                try:
-                    current_index = [s.id for s in siblings_of_current_message].index(msg_obj.id)
-                    if current_index > 0:
-                        node_data['previous_sibling_id'] = siblings_of_current_message[current_index - 1].id
-                    if current_index < len(siblings_of_current_message) - 1:
-                        node_data['next_sibling_id'] = siblings_of_current_message[current_index + 1].id
-                except ValueError:
-                    # This can happen if a message's parent_id points to a message not in all_messages_map (e.g. deleted parent)
-                    # Or if msg_obj itself is not found among its supposed siblings (data integrity issue)
-                    pass # Log error if necessary
-
-            serialized_nodes[msg_obj.id] = node_data
-
-        # Build the tree structure from serialized_nodes
-        for node_id, current_node_dict in serialized_nodes.items():
-            parent_id = current_node_dict.get('parent_id')
-            if parent_id and parent_id in serialized_nodes:
-                parent_node_dict = serialized_nodes[parent_id]
-                
-                # Simple cycle check: if this node's ID is the parent_id of its designated parent_node_dict,
-                # it forms a direct 2-cycle (e.g., A's parent is B, B's parent is A).
-                # To break the cycle for JSON serialization, we avoid adding current_node_dict as a child in this case.
-                if parent_node_dict.get('parent_id') == node_id:
-                    # This check is for parent_node_dict's own parent_id.
-                    # If parent_node_dict's parent is current_node_dict, then current_node_dict should not be a child of parent_node_dict.
-                    print(f"Warning: Detected potential 2-cycle involving {node_id} and {parent_id}. "
-                          f"Not linking {node_id} as child of {parent_id} if {parent_id}'s parent is {node_id}.")
-                    continue # Skip appending this child to break the cycle
-
-                parent_node_dict['children'].append(current_node_dict)
-        
-        # Sort children lists after all children have been appended
-        for node_val_dict in serialized_nodes.values():
-            if node_val_dict['children']: # Check if 'children' list is not empty
-                node_val_dict['children'].sort(key=lambda x: x['created_at'])
-        
-        if chat.root_message_id in serialized_nodes:
-            messages_data_for_response.append(serialized_nodes[chat.root_message_id])
-            
-    chat_data = {
-        'id': chat.id,
-        'title': chat.title,
-        'ai_model_name': ai_model_name,
-        'system_prompt': user_settings.system_prompt,
-        'messages': messages_data_for_response, # Use the new tree structure
-        'temperature': chat.ai_temperatue
-    }
-    return JsonResponse(chat_data)
-
-@login_required
-def add_message_to_chat(request, chat_id):
+def api_endpoint_list_create_view(request):
+    endpoints = AIEndpoint.objects.filter(user=request.user).order_by('name')
     if request.method == 'POST':
-        try:
-            import json
-            data = json.loads(request.body)
-            message_content = data.get('message_content')
-            parent_message_id = data.get('parent_message_id')
-
-            if not message_content:
-                return JsonResponse({'error': 'Message content is required.'}, status=400)
-
-            chat = get_object_or_404(Chat, pk=chat_id, user=request.user)
-            
-            parent_message = None
-            if parent_message_id:
-                try:
-                    # Ensure parent_message belongs to the same chat and user
-                    parent_message = get_object_or_404(Message, pk=parent_message_id, chat=chat)
-                except Message.DoesNotExist:
-                    return JsonResponse({'error': 'Parent message not found or does not belong to this chat.'}, status=404)
-            else:
-                # If no parent_message_id is provided, this implies the new message is a child of the chat's root_message
-                # Or, if the chat has no messages yet, this could be the new root.
-                # For this task, "add a new child message to the newest child Message" implies a parent_message_id should exist.
-                # However, if the frontend logic for "newest child" might sometimes yield no ID (e.g. first user message after initial assistant message),
-                # we might default to the chat's root_message if it exists and has no children yet, or handle as an error.
-                # For now, strictly require parent_message_id based on the task.
-                 return JsonResponse({'error': 'Parent message ID is required to add a child message.'}, status=400)
-
-
-            new_message = Message.objects.create(
-                chat=chat,
-                message=message_content,
-                role='user',  # Assuming 'user' for messages saved via this button
-                parent=parent_message
-            )
-
-            if parent_message:
-                parent_message.active_child = new_message
-                parent_message.save(update_fields=['active_child'])
-            
-            # Prepare data for the new message to send back, including sibling info
-            new_message_data = {
-                'id': new_message.id,
-                'role': new_message.role,
-                'content': new_message.message,
-                'created_at': new_message.created_at.isoformat() if new_message.created_at else None,
-                'parent_id': new_message.parent_id,
-                'children': [], 
-                'active_child_id': None, 
-                'is_active_sibling': True, # A new message becomes the active sibling
-                'previous_sibling_id': None,
-                'next_sibling_id': None,
-            }
-
-            if parent_message:
-                # Get siblings of new_message (children of parent_message)
-                # Ensure new_message is included if the query is cached or doesn't see it yet
-                # Re-fetch parent_message with children to be safe or add new_message to a local list
-                siblings = list(parent_message.children.all().order_by('created_at'))
-                try:
-                    # Find new_message among its siblings
-                    current_index = -1
-                    for i, s in enumerate(siblings):
-                        if s.id == new_message.id:
-                            current_index = i
-                            break
-                    
-                    if current_index != -1 and current_index > 0:
-                        new_message_data['previous_sibling_id'] = siblings[current_index - 1].id
-                    # A new message is typically the last, so no next_sibling_id among *previously existing* ones.
-                    # If other messages could be added concurrently, this logic might need adjustment or rely on client re-fetch.
-                except ValueError: 
-                    pass # Should not happen if new_message is correctly parented
-
-            return JsonResponse({'status': 'success', 'message': new_message_data}, status=201)
-
-        except json.JSONDecodeError:
-            return JsonResponse({'error': 'Invalid JSON.'}, status=400)
-        except Exception as e:
-            # Log the exception e for debugging
-            return JsonResponse({'error': str(e)}, status=500)
+        form = AIEndpointForm(request.POST, user=request.user)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"API Endpoint '{form.cleaned_data['name']}' created successfully.")
+            return redirect('api_config')
     else:
-        return JsonResponse({'error': 'Only POST requests are allowed.'}, status=405)
+        form = AIEndpointForm(user=request.user)
+    
+    # For each endpoint, get its models to display alongside
+    endpoints_with_models = []
+    for endpoint in endpoints:
+        models = AIModel.objects.filter(endpoint=endpoint).order_by('name')
+        endpoints_with_models.append({'endpoint': endpoint, 'models': models})
+
+    # Form for adding a new model (will be context for a modal or separate section)
+    model_form = AIModelForm(user=request.user)
+
+    return render(request, 'chat/api_config.html', {
+        'form': form, 
+        'endpoints_with_models': endpoints_with_models,
+        'model_form': model_form # Pass model_form for adding new models
+    })
 
 @login_required
-@require_POST # Ensures this view only accepts POST requests
-def update_message_role(request, chat_id, message_id):
-    try:
-        data = json.loads(request.body)
-        new_role = data.get('new_role')
-
-        if not new_role:
-            return JsonResponse({'error': 'New role is required.'}, status=400)
-
-        # Validate the role value if necessary (e.g., against a list of allowed roles)
-        allowed_roles = ['user', 'assistant', 'system']
-        if new_role.lower() not in allowed_roles:
-            return JsonResponse({'error': f'Invalid role specified. Must be one of {", ".join(allowed_roles)}.'}, status=400)
-
-        chat = get_object_or_404(Chat, pk=chat_id, user=request.user)
-        message_to_update = get_object_or_404(Message, pk=message_id, chat=chat)
-
-        message_to_update.role = new_role.lower() # Ensure role is stored in lowercase or as per model's expectation
-        message_to_update.save(update_fields=['role'])
-
-        return JsonResponse({'status': 'success', 'message': 'Role updated successfully.'})
-
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
-    except Chat.DoesNotExist:
-        return JsonResponse({'error': 'Chat not found or you do not have permission to access it.'}, status=404)
-    except Message.DoesNotExist:
-        return JsonResponse({'error': 'Message not found in this chat.'}, status=404)
-    except Exception as e:
-        # Log the exception e for server-side debugging
-        # logger.error(f"Error updating message role: {e}")
-        return JsonResponse({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
+def api_endpoint_update_view(request, pk):
+    endpoint = get_object_or_404(AIEndpoint, pk=pk, user=request.user)
+    if request.method == 'POST':
+        form = AIEndpointForm(request.POST, instance=endpoint, user=request.user)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"API Endpoint '{endpoint.name}' updated successfully.")
+            return redirect('api_config')
+    else:
+        form = AIEndpointForm(instance=endpoint, user=request.user)
+    return render(request, 'chat/api_endpoint_form.html', {'form': form, 'endpoint': endpoint})
 
 @login_required
 @require_POST
-@transaction.atomic
-def delete_message_view(request, chat_id, message_id):
+def api_endpoint_delete_view(request, pk):
+    endpoint = get_object_or_404(AIEndpoint, pk=pk, user=request.user)
+    endpoint_name = endpoint.name
+    # Check if models are associated, Django's on_delete=models.CASCADE will handle deletion of models
+    # but you might want to inform the user or handle it differently (e.g., prevent deletion if models exist)
+    if AIModel.objects.filter(endpoint=endpoint).exists():
+        messages.warning(request, f"Deleting endpoint '{endpoint_name}' will also delete its associated models.")
+    
+    endpoint.delete()
+    messages.success(request, f"API Endpoint '{endpoint_name}' and its associated models deleted successfully.")
+    return redirect('api_config')
+
+# AI Model Views
+@login_required
+def api_model_create_view(request, endpoint_pk=None): # endpoint_pk can be optional if selecting from dropdown
+    # If endpoint_pk is provided, pre-select it.
+    initial_data = {}
+    target_endpoint = None
+    if endpoint_pk:
+        target_endpoint = get_object_or_404(AIEndpoint, pk=endpoint_pk, user=request.user)
+        initial_data['endpoint'] = target_endpoint
+    
+    if request.method == 'POST':
+        form = AIModelForm(request.POST, user=request.user)
+        if form.is_valid():
+            model_instance = form.save(commit=False)
+            # Ensure the endpoint selected (or submitted) belongs to the user
+            if model_instance.endpoint.user != request.user:
+                 messages.error(request, "Invalid endpoint selected.")
+                 # return redirect('api_config') # Or render form with error
+            else:
+                model_instance.save()
+                messages.success(request, f"AI Model '{model_instance.name}' created successfully.")
+                return redirect('api_config')
+    else:
+        form = AIModelForm(user=request.user, initial=initial_data)
+        # If no endpoint_pk and no endpoints exist for the user, the form's __init__ handles the dropdown.
+        # We might want to prevent access or show a message if no endpoints exist at all.
+        if not AIEndpoint.objects.filter(user=request.user).exists():
+            messages.warning(request, "You need to create an API Endpoint before adding models.")
+            # Optionally redirect or disable form further
+            # For now, the form's __init__ will show "No API Endpoints configured"
+
+    return render(request, 'chat/api_model_form.html', {'form': form, 'target_endpoint': target_endpoint})
+
+
+@login_required
+def api_model_update_view(request, pk):
+    model_instance = get_object_or_404(AIModel, pk=pk, endpoint__user=request.user) # Ensure model belongs to user via endpoint
+    if request.method == 'POST':
+        form = AIModelForm(request.POST, instance=model_instance, user=request.user)
+        if form.is_valid():
+            updated_model = form.save(commit=False)
+            if updated_model.endpoint.user != request.user: # Double check endpoint ownership
+                messages.error(request, "Invalid endpoint selected.")
+            else:
+                updated_model.save()
+                messages.success(request, f"AI Model '{model_instance.name}' updated successfully.")
+                return redirect('api_config')
+    else:
+        form = AIModelForm(instance=model_instance, user=request.user)
+    return render(request, 'chat/api_model_form.html', {'form': form, 'model_instance': model_instance, 'target_endpoint': model_instance.endpoint})
+
+@login_required
+@require_POST
+def api_model_delete_view(request, pk):
+    model_instance = get_object_or_404(AIModel, pk=pk, endpoint__user=request.user)
+    model_name = model_instance.name
+    # If this model is set as default in UserSettings, clear it
+    user_settings = UserSettings.objects.filter(user=request.user, default_model=model_instance).first()
+    if user_settings:
+        user_settings.default_model = None
+        user_settings.save()
+        messages.info(request, f"'{model_name}' was your default model and has been unset.")
+        
+    model_instance.delete()
+    messages.success(request, f"AI Model '{model_name}' deleted successfully.")
+    return redirect('api_config')
+
+
+# --- Existing Views (Signup, Login, Logout, etc.) ---
+def signup_view(request):
+    if request.method == 'POST':
+        form = UserCreationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            login(request, user)
+            # UserSettings and default entities are created by the signal in models.py
+            messages.success(request, "Account created successfully! Welcome.")
+            return redirect('index')
+    else:
+        form = UserCreationForm()
+    return render(request, 'chat/signup.html', {'form': form})
+
+def login_view(request):
+    if request.method == 'POST':
+        form = AuthenticationForm(data=request.POST)
+        if form.is_valid():
+            user = form.get_user()
+            login(request, user)
+            # Ensure UserSettings exist (should be handled by signal, but good for robustness)
+            UserSettings.objects.get_or_create(user=user)
+            return redirect(request.POST.get('next') or 'index')
+    else:
+        form = AuthenticationForm()
+    return render(request, 'chat/login.html', {'form': form, 'next': request.GET.get('next', '')})
+
+@login_required
+def logout_view(request):
+    logout(request)
+    messages.info(request, "You have been logged out.")
+    return redirect('login')
+
+@login_required
+def create_new_chat_view(request):
+    user_settings, _ = UserSettings.objects.get_or_create(user=request.user)
+    folder_name = request.GET.get('folder')
+    target_folder = None
+    if folder_name:
+        target_folder = Folder.objects.filter(user=request.user, name=folder_name).first()
+
+    new_chat = Chat.objects.create(
+        user=request.user,
+        title="New Chat", # Default title, user can rename
+        folder=target_folder,
+        ai_model_used=user_settings.default_model, # Use user's default model
+        ai_temperatue=user_settings.default_temp # Use user's default temperature
+    )
+    # Create a default initial message or leave it blank
+    # For consistency with signal, let's add a welcome message
+    initial_message_content = user_settings.system_prompt or "Welcome! How can I help you today?"
+    if user_settings.system_prompt: # If system prompt is set, use it as first message from system
+        root_msg = Message.objects.create(chat=new_chat, message=user_settings.system_prompt, role="system")
+    else: # Otherwise, a generic assistant welcome
+        root_msg = Message.objects.create(chat=new_chat, message="New chat started. How can I assist?", role="assistant")
+    
+    new_chat.root_message = root_msg
+    new_chat.save()
+    
+    user_settings.last_active_chat = new_chat
+    user_settings.save()
+    
+    return redirect('index')
+
+
+# --- API Views for Chat Functionality (from original file, may need review/updates) ---
+@login_required
+@require_POST
+def create_folder_api(request):
+    folder_name = request.POST.get('folder_name', '').strip()
+    if not folder_name:
+        return JsonResponse({'status': 'error', 'error': 'Folder name cannot be empty.'}, status=400)
+    if Folder.objects.filter(user=request.user, name=folder_name).exists():
+        return JsonResponse({'status': 'error', 'error': 'A folder with this name already exists.'}, status=400)
+    
+    folder = Folder.objects.create(user=request.user, name=folder_name)
+    return JsonResponse({'status': 'success', 'message': 'Folder created successfully.', 'folder_id': folder.id, 'folder_name': folder.name})
+
+@login_required
+@require_POST
+def rename_folder_api(request):
+    old_name = request.POST.get('old_folder_name', '').strip()
+    new_name = request.POST.get('new_folder_name', '').strip()
+
+    if not old_name or not new_name:
+        return JsonResponse({'status': 'error', 'error': 'Folder names cannot be empty.'}, status=400)
+    if new_name == old_name:
+        return JsonResponse({'status': 'success', 'message': 'Folder name is the same, no change made.'})
+    if Folder.objects.filter(user=request.user, name=new_name).exists():
+        return JsonResponse({'status': 'error', 'error': f"A folder named '{new_name}' already exists."}, status=400)
+
     try:
-        chat = get_object_or_404(Chat, id=chat_id, user=request.user)
-        message_to_delete = get_object_or_404(Message, id=message_id, chat=chat)
-    except Http404:
-        return JsonResponse({'status': 'error', 'error': 'Chat or Message not found or permission denied.'}, status=404)
+        folder = Folder.objects.get(user=request.user, name=old_name)
+        folder.name = new_name
+        folder.save()
+        return JsonResponse({'status': 'success', 'message': 'Folder renamed successfully.'})
+    except Folder.DoesNotExist:
+        return JsonResponse({'status': 'error', 'error': 'Original folder not found.'}, status=404)
 
-    parent_message = message_to_delete.parent
 
-    # If the deleted message has a parent and was its active child
-    if parent_message and parent_message.active_child_id == message_to_delete.id:
-        # Find other siblings to potentially set as new active child
-        siblings = list(parent_message.children.exclude(id=message_to_delete.id).order_by('-created_at'))
+@login_required
+@require_POST
+def delete_folder_api(request):
+    folder_name = request.POST.get('folder_name', '').strip()
+    if not folder_name:
+        return JsonResponse({'status': 'error', 'error': 'Folder name cannot be empty.'}, status=400)
+    
+    try:
+        folder = Folder.objects.get(user=request.user, name=folder_name)
+        # Move chats from this folder to "Other Chats" (i.e., set their folder to None)
+        Chat.objects.filter(folder=folder).update(folder=None)
+        folder.delete()
+        return JsonResponse({'status': 'success', 'message': f"Folder '{folder_name}' deleted. Its chats have been moved to 'Other Chats'."})
+    except Folder.DoesNotExist:
+        return JsonResponse({'status': 'error', 'error': 'Folder not found.'}, status=404)
 
-        new_active_child = None
-        if siblings:
-            new_active_child = siblings[0] # Select the most recent remaining sibling
 
-        parent_message.active_child = new_active_child
-        parent_message.save(update_fields=['active_child'])
+@login_required
+def get_chat_details_api(request, chat_id):
+    chat = get_object_or_404(Chat, id=chat_id, user=request.user)
+    
+    # Update last_active_chat for the user
+    user_settings, _ = UserSettings.objects.get_or_create(user=request.user)
+    user_settings.last_active_chat = chat
+    user_settings.save()
 
-    # Recursively delete the message and all its children
-    def _recursive_delete(message_node):
-        children_to_delete = list(message_node.children.all()) # Materialize queryset before iterating
-        for child in children_to_delete:
-            _recursive_delete(child)
-        message_node.delete()
+    # Build the message tree
+    # Start with messages that have no parent (root messages of branches)
+    # However, a chat has one true root_message. We should traverse from there.
+    
+    messages_data = []
+    if chat.root_message:
+        # Helper function to recursively build the tree
+        def build_message_tree_json(message_obj):
+            children_json = []
+            # Get all children, then find the active one to prioritize
+            all_children = list(message_obj.children.all().order_by('created_at')) # Ensure consistent order
+            
+            active_child_obj = message_obj.active_child
+            
+            # Determine previous and next sibling IDs for the active child
+            prev_sibling_id = None
+            next_sibling_id = None
 
-    _recursive_delete(message_to_delete)
+            if active_child_obj and all_children:
+                try:
+                    active_child_index = all_children.index(active_child_obj)
+                    if active_child_index > 0:
+                        prev_sibling_id = all_children[active_child_index - 1].id
+                    if active_child_index < len(all_children) - 1:
+                        next_sibling_id = all_children[active_child_index + 1].id
+                except ValueError: # Should not happen if active_child is indeed in all_children
+                    pass
+
+
+            for child in all_children:
+                is_active_sibling = (active_child_obj == child) or (not active_child_obj and len(all_children) == 1)
+                # The child to recurse on is the active one.
+                # Other children are just listed as potential branches but not traversed further in this specific path.
+                # The frontend will only render the active path.
+                # The `is_active_sibling` flag helps the frontend show navigation for non-active siblings.
+                # This part of the logic might need refinement based on how frontend wants to display branches.
+                # For now, we pass all children, and mark the active one.
+                
+                # Simplified: we only pass the active child for further recursion in the tree structure.
+                # The frontend will need separate calls or more data if it wants to explore non-active branches.
+                # OR, we pass all children, and the frontend decides. Let's pass all.
+                
+                # Correction: The `children` key in JSON should represent the *next level* of the *active path*.
+                # Sibling information is for navigating *at the current level*.
+                
+                # Let's refine: the `children` key in the JSON should be the children of *this* message_obj
+                # that are on the active path.
+                # The `is_active_sibling` and sibling IDs are for the *current* message_obj if it's part of a sibling group.
+
+            # The `children` key in the JSON for `message_obj` should contain the *active* path downwards.
+            active_children_to_recurse_json = []
+            if active_child_obj:
+                 active_children_to_recurse_json = [build_message_tree_json(active_child_obj)]
+
+
+            return {
+                'id': message_obj.id,
+                'content': message_obj.message,
+                'role': message_obj.role,
+                'created_at': message_obj.created_at.isoformat() if message_obj.created_at else None,
+                'parent_id': message_obj.parent_id,
+                'active_child_id': message_obj.active_child_id,
+                'children': active_children_to_recurse_json, # Only active path children
+                'is_active_sibling': (message_obj.parent and message_obj.parent.active_child_id == message_obj.id) or \
+                                     (message_obj.parent and not message_obj.parent.active_child_id and message_obj.parent.children.count() == 1),
+                'previous_sibling_id': prev_sibling_id, # This needs to be calculated for message_obj itself if it's a sibling
+                'next_sibling_id': next_sibling_id,     # This needs to be calculated for message_obj itself
+            }
+
+        # Simpler approach for now: send a flat list, let frontend rebuild or send nested active path.
+        # For the current JS, it expects a tree where `children` contains the active path.
+        
+        # Revised tree building for active path:
+        def get_active_path_json(message_obj):
+            node_data = {
+                'id': message_obj.id,
+                'content': message_obj.message,
+                'role': message_obj.role,
+                'created_at': message_obj.created_at.isoformat() if message_obj.created_at else None,
+                'parent_id': message_obj.parent_id,
+                'active_child_id': message_obj.active_child_id,
+                'children': [], # Will be populated by the active child's recursion
+                # Sibling data for navigation
+                'is_active_sibling': False, # Will be true if this node is the active_child of its parent
+                'previous_sibling_id': None,
+                'next_sibling_id': None,
+            }
+
+            if message_obj.parent: # If it has a parent, it might be an active sibling
+                all_siblings = list(message_obj.parent.children.all().order_by('created_at'))
+                if message_obj.parent.active_child_id == message_obj.id or \
+                   (not message_obj.parent.active_child_id and len(all_siblings) == 1 and all_siblings[0] == message_obj):
+                    node_data['is_active_sibling'] = True
+                
+                if len(all_siblings) > 1:
+                    try:
+                        current_index = all_siblings.index(message_obj)
+                        if current_index > 0:
+                            node_data['previous_sibling_id'] = all_siblings[current_index - 1].id
+                        if current_index < len(all_siblings) - 1:
+                            node_data['next_sibling_id'] = all_siblings[current_index + 1].id
+                    except ValueError:
+                        pass # Should not happen
+
+            if message_obj.active_child:
+                node_data['children'].append(get_active_path_json(message_obj.active_child))
+            
+            return node_data
+
+        messages_data = [get_active_path_json(chat.root_message)]
+
+
+    ai_model_name = chat.ai_model_used.name if chat.ai_model_used else (user_settings.default_model.name if user_settings.default_model else "N/A")
+    temperature = chat.ai_temperatue # This should be chat.ai_temperature (typo in model)
+
+    return JsonResponse({
+        'id': chat.id,
+        'title': chat.title,
+        'messages': messages_data,
+        'ai_model_name': ai_model_name,
+        'temperature': temperature,
+        'system_prompt': user_settings.system_prompt # This should probably be chat-specific if we add it to Chat model
+    })
+
+
+@login_required
+@require_POST
+def add_message_to_chat_api(request, chat_id):
+    chat = get_object_or_404(Chat, id=chat_id, user=request.user)
+    message_content = request.POST.get('message_content', '').strip()
+    parent_message_id = request.POST.get('parent_message_id')
+
+    if not message_content:
+        return JsonResponse({'status': 'error', 'error': 'Message content cannot be empty.'}, status=400)
+    if not parent_message_id:
+        return JsonResponse({'status': 'error', 'error': 'Parent message ID is required.'}, status=400)
+
+    try:
+        parent_message = Message.objects.get(id=parent_message_id, chat=chat)
+    except Message.DoesNotExist:
+        return JsonResponse({'status': 'error', 'error': 'Parent message not found in this chat.'}, status=404)
+
+    with transaction.atomic():
+        new_message = Message.objects.create(
+            chat=chat,
+            message=message_content,
+            role='user', # Assuming new messages added via UI are from user, can be changed
+            parent=parent_message
+        )
+        # Set the new message as the active child of its parent
+        parent_message.active_child = new_message
+        parent_message.save()
+
+    return JsonResponse({
+        'status': 'success',
+        'message': 'Message added successfully.',
+        'message_id': new_message.id,
+        'parent_id': parent_message.id
+    })
+
+@login_required
+@require_POST
+def update_message_content_api(request, chat_id, message_id):
+    message_obj = get_object_or_404(Message, id=message_id, chat_id=chat_id, chat__user=request.user)
+    new_content = request.POST.get('new_content', '').strip() # Assuming POST, could be JSON
+    
+    # For JSON:
+    # import json
+    # data = json.loads(request.body)
+    # new_content = data.get('new_content', '').strip()
+
+
+    if not new_content: # Or handle this validation in a form
+        return JsonResponse({'status': 'error', 'error': 'Content cannot be empty.'}, status=400)
+    
+    message_obj.message = new_content
+    message_obj.save()
+    return JsonResponse({'status': 'success', 'message': 'Message updated.'})
+
+@login_required
+@require_POST
+def update_message_role_api(request, chat_id, message_id):
+    message_obj = get_object_or_404(Message, id=message_id, chat_id=chat_id, chat__user=request.user)
+    new_role = request.POST.get('new_role', '').strip().lower() # Assuming POST
+    
+    # For JSON:
+    # import json
+    # data = json.loads(request.body)
+    # new_role = data.get('new_role', '').strip().lower()
+
+    VALID_ROLES = ['user', 'assistant', 'system'] # Define valid roles
+    if not new_role in VALID_ROLES:
+        return JsonResponse({'status': 'error', 'error': f"Invalid role. Must be one of {', '.join(VALID_ROLES)}."}, status=400)
+    
+    message_obj.role = new_role
+    message_obj.save()
+    return JsonResponse({'status': 'success', 'message': 'Role updated.'})
+
+
+@login_required
+@require_POST
+def delete_message_api(request, chat_id, message_id):
+    message_to_delete = get_object_or_404(Message, id=message_id, chat_id=chat_id, chat__user=request.user)
+
+    with transaction.atomic():
+        parent = message_to_delete.parent
+        if parent:
+            # If the deleted message was an active child, nullify parent's active_child
+            if parent.active_child == message_to_delete:
+                parent.active_child = None
+                # Try to set another child as active, e.g., the previous sibling or first child
+                other_children = parent.children.exclude(id=message_to_delete.id).order_by('-created_at') # newest first
+                if other_children.exists():
+                    parent.active_child = other_children.first()
+                parent.save()
+        
+        # If the message being deleted is the root message of the chat
+        if chat_id and message_to_delete.chat.root_message == message_to_delete:
+            chat_instance = message_to_delete.chat
+            chat_instance.root_message = None # Or set to another message if logic allows
+            chat_instance.save()
+
+
+        # Deleting a message will cascade delete its children due to on_delete=models.CASCADE on Message.parent
+        message_to_delete.delete()
 
     return JsonResponse({'status': 'success', 'message': 'Message and its replies deleted successfully.'})
 
+
 @login_required
 @require_POST
-@transaction.atomic
-def add_sibling_view(request, chat_id, source_message_id):
-    try:
-        chat = get_object_or_404(Chat, pk=chat_id, user=request.user)
-        source_message = get_object_or_404(Message, pk=source_message_id, chat=chat)
-
-        # Create the new sibling message
-        new_sibling_message = Message.objects.create(
-            chat=chat,
-            parent=source_message.parent, # Sibling shares the same parent
-            role=source_message.role,     # Sibling shares the same role
-            message="",                   # Blank content
-            # created_at will be set automatically
-        )
-
-        # If the parent had the source_message as its active_child,
-        # we might want to set the new sibling as the active_child,
-        # or leave it to the user to navigate. For now, let's make the new sibling active.
-        if source_message.parent:
-            source_message.parent.active_child = new_sibling_message
-            source_message.parent.save(update_fields=['active_child'])
-        # If source_message has no parent (it's a root), then active_child logic
-        # for the chat's root_message might need consideration, but typically
-        # root messages don't have an 'active_child' in the same way.
-        # The frontend re-fetch will handle displaying the new message.
-
-        return JsonResponse({
-            'status': 'success',
-            'message': 'Sibling message added successfully.',
-            'new_message_id': new_sibling_message.id
-        }, status=201)
-
-    except Chat.DoesNotExist:
-        return JsonResponse({'error': 'Chat not found.'}, status=404)
-    except Message.DoesNotExist:
-        return JsonResponse({'error': 'Source message not found.'}, status=404)
-    except Exception as e:
-        # Log e for debugging
-        return JsonResponse({'error': str(e)}, status=500)
-
-@login_required
-@require_POST # Ensures this view only accepts POST requests
-def update_message_content(request, chat_id, message_id):
-    try:
-        data = json.loads(request.body)
-        new_content = data.get('new_content')
-
-        if new_content is None: # Check for None explicitly, as empty string might be valid
-            return JsonResponse({'error': 'New content is required.'}, status=400)
-
-        # Ensure the user owns the chat and the message belongs to that chat
-        chat = get_object_or_404(Chat, pk=chat_id, user=request.user)
-        message_to_update = get_object_or_404(Message, pk=message_id, chat=chat)
-
-        message_to_update.message = new_content # 'message' is the field name in the Message model for content
-        message_to_update.save(update_fields=['message'])
-
-        return JsonResponse({'status': 'success', 'message': 'Message content updated successfully.'})
-
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
-    except Chat.DoesNotExist:
-        return JsonResponse({'error': 'Chat not found or you do not have permission to access it.'}, status=404)
-    except Message.DoesNotExist:
-        return JsonResponse({'error': 'Message not found in this chat.'}, status=404)
-    except Exception as e:
-        # Log the exception e for server-side debugging
-        # import logging
-        # logger = logging.getLogger(__name__)
-        # logger.error(f"Error updating message content: {e}")
-        return JsonResponse({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
-
-@login_required # Ensure this view also requires login
-def create_new_chat_view(request): # Renamed for clarity
-    user = request.user
+def add_sibling_message_api(request, chat_id, source_message_id):
+    source_message = get_object_or_404(Message, id=source_message_id, chat_id=chat_id, chat__user=request.user)
     
-    # Get_or_create user settings to ensure they exist and to update last_active_chat later
-    user_settings, created_settings = UserSettings.objects.get_or_create(
-        user=user,
-        defaults={ # Sensible defaults if UserSettings record is created now
-            'system_prompt': "You are playing the role of a friendly and helpful chatbot.",
-            'default_temp': 1.0,
-            # 'default_model' will be None initially if created here, might need handling
-        }
-    )
+    if not source_message.parent:
+        return JsonResponse({'status': 'error', 'error': 'Cannot add a sibling to a root message this way. Create a new branch from UI if needed.'}, status=400)
 
-    default_model = user_settings.default_model
-    default_temp = user_settings.default_temp
-    default_system_prompt = user_settings.system_prompt
-
-    if not default_model:
-        # The post_save signal on User creation in models.py should set a default_model.
-        # If it can still be None (e.g., UserSettings existed before signal or manual deletion),
-        # this is a configuration issue.
-        messages.error(request, "Default AI model not configured. Please check your settings.")
-        return redirect('user_settings') # Redirect to settings page
-
-    # Determine folder for the new chat
-    target_folder = None
-    folder_name_from_query = request.GET.get('folder')
-    if folder_name_from_query:
-        # Try to find an existing folder or create a new one if it doesn't exist
-        # This assumes folder names are unique per user.
-        # If your Folder model doesn't enforce this, you might need to adjust.
-        target_folder, created = Folder.objects.get_or_create(
-            user=user, 
-            name=folder_name_from_query
+    with transaction.atomic():
+        # Create a new message as a child of the source_message's parent
+        # Typically, a sibling implies a new "assistant" response to the same "user" prompt (source_message.parent)
+        # Or a new "user" reply if source_message was an "assistant" reply.
+        # For simplicity, let's assume new sibling is an "assistant" message for now.
+        new_sibling = Message.objects.create(
+            chat=source_message.chat,
+            message="New alternative message...", # Default content
+            role=source_message.role, # Or 'assistant' if source was 'user' that prompted this branch
+            parent=source_message.parent
         )
+        # Set this new sibling as the active child of the parent
+        source_message.parent.active_child = new_sibling
+        source_message.parent.save()
 
-    # Create the new Chat
-    new_chat = Chat.objects.create(
-        user=user,
-        title="New Chat", # Consider a more dynamic title, e.g., "Chat - May 28, 4:17 PM"
-        folder=target_folder, # Assign the folder
-        ai_model_used=default_model,
-        ai_temperatue=default_temp # Field name from model (ai_temperatue)
-    )
+    return JsonResponse({
+        'status': 'success',
+        'message': 'New sibling message added and set as active.',
+        'new_message_id': new_sibling.id,
+        'parent_id': new_sibling.parent_id
+    })
 
-    # Create the initial System Message
-    system_message = Message.objects.create(
-        chat=new_chat,
-        message=default_system_prompt,
-        role='system'
-        # parent will be None for the first message
-    )
-
-    # Set the root message for the chat
-    new_chat.root_message = system_message
-    new_chat.save(update_fields=['root_message'])
-
-    # Update the user's last active chat to this new one
-    user_settings.last_active_chat = new_chat
-    user_settings.save(update_fields=['last_active_chat'])
-
-    # Redirect to the main index page. The JavaScript on that page
-    # should pick up the last_active_chat_id and load it.
-    return redirect('index') # 'index' is the name of the main chat view
 
 @login_required
 @require_POST
-def rename_chat_title(request, chat_id):
-    try:
-        data = json.loads(request.body)
-        new_title = data.get('new_title')
+def set_active_child_api(request, chat_id):
+    # import json
+    # data = json.loads(request.body)
+    # parent_message_id = data.get('parent_message_id')
+    # child_to_activate_id = data.get('child_to_activate_id')
+    parent_message_id = request.POST.get('parent_message_id')
+    child_to_activate_id = request.POST.get('child_to_activate_id')
 
-        if not new_title or not new_title.strip():
-            return JsonResponse({'error': 'New title cannot be empty.'}, status=400)
 
-        chat = get_object_or_404(Chat, pk=chat_id, user=request.user)
+    if not parent_message_id or not child_to_activate_id:
+        return JsonResponse({'status': 'error', 'error': 'Parent and child message IDs are required.'}, status=400)
+
+    parent_message = get_object_or_404(Message, id=parent_message_id, chat_id=chat_id, chat__user=request.user)
+    child_to_activate = get_object_or_404(Message, id=child_to_activate_id, chat_id=chat_id, chat__user=request.user, parent=parent_message)
+
+    parent_message.active_child = child_to_activate
+    parent_message.save()
+
+    return JsonResponse({'status': 'success', 'message': 'Active child message updated.'})
+
+
+@login_required
+@require_POST
+def rename_chat_title_api(request, chat_id):
+    chat = get_object_or_404(Chat, id=chat_id, user=request.user)
+    # import json
+    # data = json.loads(request.body)
+    # new_title = data.get('new_title', '').strip()
+    new_title = request.POST.get('new_title', '').strip()
+
+
+    if not new_title:
+        return JsonResponse({'status': 'error', 'error': 'Title cannot be empty.'}, status=400)
+    
+    chat.title = new_title
+    chat.save()
+    return JsonResponse({'status': 'success', 'message': 'Chat title updated.', 'new_title': chat.title})
+
+@login_required
+@require_POST
+def delete_chat_api(request, chat_id):
+    chat = get_object_or_404(Chat, id=chat_id, user=request.user)
+    
+    # If this chat is the last_active_chat for the user, clear it
+    user_settings = UserSettings.objects.filter(user=request.user, last_active_chat=chat).first()
+    if user_settings:
+        user_settings.last_active_chat = None
+        user_settings.save()
         
-        chat.title = new_title.strip()
-        chat.save(update_fields=['title'])
-
-        return JsonResponse({'status': 'success', 'message': 'Chat title updated successfully.', 'new_title': chat.title})
-
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
-    except Chat.DoesNotExist:
-        return JsonResponse({'error': 'Chat not found or permission denied.'}, status=404)
-    except Exception as e:
-        # Log e for server-side debugging
-        # logger.error(f"Error renaming chat title: {e}")
-        return JsonResponse({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
-
-@login_required
-@require_POST
-def delete_chat(request, chat_id):
-    try:
-        chat = get_object_or_404(Chat, id=chat_id, user=request.user)
-        chat.delete()
-        # If this was the last_active_chat, clear it from user settings
-        if hasattr(request.user, 'settings') and request.user.settings.last_active_chat_id == chat_id: # Check against chat_id directly
-            request.user.settings.last_active_chat = None
-            request.user.settings.save(update_fields=['last_active_chat'])
-        return JsonResponse({'status': 'success', 'message': 'Chat deleted successfully.'})
-    except Http404:
-        return JsonResponse({'status': 'error', 'message': 'Chat not found or permission denied.'}, status=404)
-    except Exception as e:
-        # Log e for server-side debugging
-        # logger.error(f"Error deleting chat: {e}")
-        return JsonResponse({'status': 'error', 'message': f'An unexpected error occurred: {str(e)}'}, status=500)
-
-@login_required
-@require_POST
-@transaction.atomic
-def rename_folder_api(request):
-    try:
-        data = json.loads(request.body)
-        old_folder_name = data.get('old_folder_name')
-        new_folder_name = data.get('new_folder_name')
-
-        if not old_folder_name or not new_folder_name:
-            return JsonResponse({'error': 'Old and new folder names are required.'}, status=400)
-        
-        if old_folder_name == new_folder_name:
-            return JsonResponse({'status': 'success', 'message': 'Folder name is already up to date.'})
-
-        user = request.user
-
-        # Check if a folder with the new name already exists for this user
-        if Folder.objects.filter(user=user, name=new_folder_name).exists():
-            return JsonResponse({'error': f"A folder named '{new_folder_name}' already exists."}, status=400)
-
-        # Find the folder to rename
-        folder_to_rename = get_object_or_404(Folder, user=user, name=old_folder_name)
-        
-        folder_to_rename.name = new_folder_name
-        folder_to_rename.save(update_fields=['name'])
-
-        return JsonResponse({'status': 'success', 'message': f"Folder '{old_folder_name}' renamed to '{new_folder_name}'."})
-
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
-    except Folder.DoesNotExist:
-        return JsonResponse({'error': f"Folder '{old_folder_name}' not found."}, status=404)
-    except Exception as e:
-        # Log e
-        return JsonResponse({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
-
-@login_required
-@require_POST
-@transaction.atomic
-def create_folder_api(request):
-    try:
-        data = json.loads(request.body)
-        folder_name = data.get('folder_name', '').strip()
-
-        if not folder_name:
-            return JsonResponse({'error': 'Folder name cannot be empty.'}, status=400)
-
-        user = request.user
-
-        # Check if a folder with this name already exists for the user
-        if Folder.objects.filter(user=user, name=folder_name).exists():
-            return JsonResponse({'error': f"A folder named '{folder_name}' already exists."}, status=400)
-
-        # Create the new folder
-        Folder.objects.create(user=user, name=folder_name)
-
-        return JsonResponse({'status': 'success', 'message': f"Folder '{folder_name}' created successfully."})
-
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
-    except Exception as e:
-        # Log e for server-side debugging
-        # logger.error(f"Error creating folder: {e}")
-        return JsonResponse({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
-
-@login_required
-@require_POST
-@transaction.atomic
-def delete_folder_api(request):
-    try:
-        data = json.loads(request.body)
-        folder_name = data.get('folder_name')
-
-        if not folder_name:
-            return JsonResponse({'error': 'Folder name is required.'}, status=400)
-
-        user = request.user
-        folder_to_delete = get_object_or_404(Folder, user=user, name=folder_name)
-
-        # Move chats from this folder to "Other Chats" (i.e., set their folder to None)
-        Chat.objects.filter(user=user, folder=folder_to_delete).update(folder=None)
-        
-        # Delete the folder
-        folder_to_delete.delete()
-
-        return JsonResponse({'status': 'success', 'message': f"Folder '{folder_name}' deleted. Chats moved to 'Other Chats'."})
-
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
-    except Folder.DoesNotExist:
-        return JsonResponse({'error': f"Folder '{folder_name}' not found."}, status=404)
-    except Exception as e:
-        # Log e
-        return JsonResponse({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
+    chat.delete() # Messages will be cascade deleted
+    return JsonResponse({'status': 'success', 'message': 'Chat deleted successfully.'})

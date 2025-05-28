@@ -32,6 +32,8 @@ class AIModel(models.Model):
     name = models.CharField(max_length=255, help_text="A custom name for the AI model (e.g., 'Davinci Advanced')")
     model_id = models.CharField(max_length=255, help_text="The actual model identifier used by the API (e.g., 'gpt-4-turbo')")
     endpoint = models.ForeignKey(AIEndpoint, on_delete=models.CASCADE, related_name='models', help_text="The AI endpoint this model belongs to", null=True, blank=True)
+    default_temperature = models.FloatField(null=True, blank=True, help_text="Default temperature for this model (e.g., 0.7)")
+    default_max_tokens = models.IntegerField(null=True, blank=True, help_text="Default maximum tokens for this model (e.g., 2048)")
 
     def __str__(self):
         return f"{self.name} ({self.endpoint.name})"

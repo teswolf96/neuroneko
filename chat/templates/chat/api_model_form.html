@@ -1,0 +1,68 @@
+{% extends "chat/index.html" %}
+{% load static %}
+
+{% block title %}{% if model_instance %}Edit AI Model{% else %}Add AI Model{% endif %}{% endblock %}
+
+{% block content %}
+<div class="bg-gray-800 p-6 rounded-lg shadow-lg text-white">
+    <h2 class="text-2xl font-semibold mb-6">
+        {% if model_instance %}
+            Edit AI Model: {{ model_instance.name }}
+            {% if model_instance.endpoint %}(for Endpoint: {{ model_instance.endpoint.name }}){% endif %}
+        {% else %}
+            Add New AI Model
+            {% if target_endpoint %} to Endpoint: {{ target_endpoint.name }}{% endif %}
+        {% endif %}
+    </h2>
+
+    {% if messages %}
+        <div class="mb-4">
+            {% for message in messages %}
+                <div class="p-3 rounded text-sm {% if message.tags == 'success' %}bg-green-600{% elif message.tags == 'error' %}bg-red-600{% elif message.tags == 'warning' %}bg-yellow-600 text-black{% else %}bg-blue-600{% endif %} text-white">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <form method="post" class="space-y-4">
+        {% csrf_token %}
+        {% for field in form %}
+        <div class="flex flex-col">
+            <label for="{{ field.id_for_label }}" class="mb-1 text-sm font-medium text-gray-300">{{ field.label }}</label>
+            
+            {% if field.name == 'endpoint' and not form.fields.endpoint.queryset.exists %}
+                <p class="text-yellow-400 text-sm p-2 bg-gray-700 rounded">
+                    No API Endpoints are configured. Please <a href="{% url 'api_config' %}" class="underline hover:text-yellow-200">add an API Endpoint</a> first.
+                </p>
+                {# Optionally hide the field or show a disabled version #}
+                {{ field.as_hidden }} 
+            {% else %}
+                {{ field }}
+            {% endif %}
+
+            {% if field.help_text %}
+                <p class="mt-1 text-xs text-gray-400">{{ field.help_text }}</p>
+            {% endif %}
+            {% if field.errors %}
+                <div class="mt-1 text-red-400 text-xs">
+                    {% for error in field.errors %}<p>{{ error }}</p>{% endfor %}
+                </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+        
+        <div class="flex items-center space-x-4 mt-6">
+            {% if form.fields.endpoint.queryset.exists or model_instance %} 
+                {# Show button only if endpoints exist for selection, or if editing an existing model #}
+                <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50">
+                    {% if model_instance %}Save Changes{% else %}Add AI Model{% endif %}
+                </button>
+            {% endif %}
+            <a href="{% url 'api_config' %}" class="text-gray-400 hover:text-white py-2 px-4 rounded-lg border border-gray-600 hover:bg-gray-700">
+                Cancel and Back to API Configuration
+            </a>
+        </div>
+    </form>
+</div>
+{% endblock %}

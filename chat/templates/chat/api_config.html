@@ -1,0 +1,103 @@
+{% extends "chat/index.html" %}
+{% load static %}
+
+{% block title %}API Configuration{% endblock %}
+
+{% block content %}
+<div class="bg-gray-800 p-6 rounded-lg shadow-lg text-white">
+    <h2 class="text-2xl font-semibold mb-6">API Endpoint and Model Configuration</h2>
+
+    {% if messages %}
+        <div class="mb-4">
+            {% for message in messages %}
+                <div class="p-3 rounded text-sm {% if message.tags == 'success' %}bg-green-600{% elif message.tags == 'error' %}bg-red-600{% elif message.tags == 'warning' %}bg-yellow-600 text-black{% else %}bg-blue-600{% endif %} text-white">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <!-- Add New API Endpoint Section -->
+    <div class="mb-8 p-4 bg-gray-700 rounded-lg">
+        <h3 class="text-xl font-semibold mb-3">Add New API Endpoint</h3>
+        <form method="post" action="{% url 'api_config' %}" class="space-y-4">
+            {% csrf_token %}
+            {% for field in form %}
+            <div class="flex flex-col">
+                <label for="{{ field.id_for_label }}" class="mb-1 text-sm font-medium text-gray-300">{{ field.label }}</label>
+                {{ field }}
+                {% if field.help_text %}
+                    <p class="mt-1 text-xs text-gray-400">{{ field.help_text }}</p>
+                {% endif %}
+                {% if field.errors %}
+                    <div class="mt-1 text-red-400 text-xs">
+                        {% for error in field.errors %}<p>{{ error }}</p>{% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+            <button type="submit" name="add_endpoint" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                Add API Endpoint
+            </button>
+        </form>
+    </div>
+
+    <!-- Existing API Endpoints -->
+    <h3 class="text-xl font-semibold mb-4">Your API Endpoints</h3>
+    {% if endpoints_with_models %}
+        <div class="space-y-6">
+            {% for item in endpoints_with_models %}
+            <div class="bg-gray-700 p-4 rounded-lg">
+                <div class="flex justify-between items-center mb-3">
+                    <h4 class="text-lg font-semibold">{{ item.endpoint.name }} <span class="text-sm text-gray-400">({{ item.endpoint.url }})</span></h4>
+                    <div class="space-x-2">
+                        <a href="{% url 'api_endpoint_edit' item.endpoint.pk %}" class="text-xs bg-yellow-500 hover:bg-yellow-600 text-black py-1 px-3 rounded-md">Edit Endpoint</a>
+                        <form method="post" action="{% url 'api_endpoint_delete' item.endpoint.pk %}" class="inline" onsubmit="return confirm('Are you sure you want to delete the endpoint \'{{ item.endpoint.name }}\' and all its models?');">
+                            {% csrf_token %}
+                            <button type="submit" class="text-xs bg-red-500 hover:bg-red-600 text-white py-1 px-3 rounded-md">Delete Endpoint</button>
+                        </form>
+                    </div>
+                </div>
+
+                <h5 class="text-md font-semibold mb-2 text-gray-300">Models for this Endpoint:</h5>
+                {% if item.models %}
+                    <ul class="list-disc list-inside space-y-1 pl-4 text-sm">
+                        {% for model in item.models %}
+                        <li class="flex justify-between items-center">
+                            <span>{{ model.name }} (ID: {{ model.model_id }})
+                                {% if model.default_temperature is not None %} | Temp: {{ model.default_temperature }}{% endif %}
+                                {% if model.default_max_tokens is not None %} | Max Tokens: {{ model.default_max_tokens }}{% endif %}
+                            </span>
+                            <div class="space-x-1">
+                                <a href="{% url 'api_model_edit' model.pk %}" class="text-xs bg-yellow-500 hover:bg-yellow-600 text-black py-1 px-2 rounded-md">Edit Model</a>
+                                <form method="post" action="{% url 'api_model_delete' model.pk %}" class="inline" onsubmit="return confirm('Are you sure you want to delete the model \'{{ model.name }}\'?');">
+                                    {% csrf_token %}
+                                    <button type="submit" class="text-xs bg-red-500 hover:bg-red-600 text-white py-1 px-2 rounded-md">Delete Model</button>
+                                </form>
+                            </div>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="text-sm text-gray-400 pl-4">No models configured for this endpoint yet.</p>
+                {% endif %}
+                <div class="mt-3">
+                     <a href="{% url 'api_model_add_to_endpoint' item.endpoint.pk %}" class="text-xs bg-green-500 hover:bg-green-600 text-white py-1 px-3 rounded-md">Add Model to {{ item.endpoint.name }}</a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="text-gray-400">You haven't configured any API endpoints yet.</p>
+    {% endif %}
+
+    <div class="mt-8">
+        <a href="{% url 'user_settings' %}" class="text-gray-400 hover:text-white py-2 px-4 rounded-lg border border-gray-600 hover:bg-gray-700">
+            Back to User Settings
+        </a>
+         <a href="{% url 'index' %}" class="ml-2 text-gray-400 hover:text-white py-2 px-4 rounded-lg border border-gray-600 hover:bg-gray-700">
+            Back to Chat
+        </a>
+    </div>
+</div>
+{% endblock %}
