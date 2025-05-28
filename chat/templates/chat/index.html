@@ -7,6 +7,14 @@
     <title>{% block title %}Best GPT Interface{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        .unselectable {
+            -webkit-user-select: none; /* Safari */
+            -moz-user-select: none; /* Firefox */
+            -ms-user-select: none; /* IE10+/Edge */
+            user-select: none; /* Standard */
+        }
+    </style>
     {% block extra_head %}{% endblock %}
 </head>
 <body class="bg-gray-900 text-white h-screen flex">
@@ -28,14 +36,14 @@
             <!-- Folder Dropdown -->
             <details class="group" open>
                 <summary class="text-sm font-bold text-gray-400 mt-4 mb-2 px-2 cursor-pointer list-none flex items-center justify-between">
-                    <span><!-- <span class="group-open:rotate-90 inline-block mr-1 transition-transform duration-150 transform">▶</span>--> Folders</span>
+                    <span class="unselectable"><!-- <span class="group-open:rotate-90 inline-block mr-1 transition-transform duration-150 transform">▶</span>--> Folders</span>
                 </summary>
                 <div class="ml-4"> <!-- Indent folder contents slightly more -->
                     {% for item in folder_structure %}
                         {% if item.name != "Other Chats" %}
                             <details class="group mt-2 folder-item-container"> <!-- Wrapper for each folder, now a details element -->
                                 <summary class="text-sm font-semibold text-gray-300 mb-1 px-2 cursor-pointer list-none flex items-center justify-between">
-                                    <span class="folder-name-display flex-grow"><!-- <span class="group-open:rotate-90 inline-block mr-1 transition-transform duration-150 transform">▶</span>--> {{ item.name }}</span>
+                                    <span class="folder-name-display flex-grow unselectable"><!-- <span class="group-open:rotate-90 inline-block mr-1 transition-transform duration-150 transform">▶</span>--> {{ item.name }}</span>
                                     <div class="folder-actions flex items-center space-x-1 ml-2 hidden" data-folder-name="{{ item.name|escapejs }}">
                                         <button class="create-chat-in-folder-button text-gray-400 hover:text-white text-xs focus:outline-none" title="New Chat in Folder">➕</button>
                                         <button class="rename-folder-button text-gray-400 hover:text-white text-xs focus:outline-none" title="Rename Folder">✏️</button>
@@ -70,7 +78,7 @@
                 {% if item.name == "Other Chats" %}
                     {% if item.chats %} <!-- Only show "Other Chats" section if it has chats -->
                     <details class="group" open> <!-- Default open -->
-                        <summary class="text-sm font-bold text-gray-400 mt-4 mb-2 px-2 cursor-pointer list-none flex items-center">
+                        <summary class="text-sm font-bold text-gray-400 mt-4 mb-2 px-2 cursor-pointer list-none flex items-center unselectable">
                              <!-- <span class="group-open:rotate-90 inline-block mr-1 transition-transform duration-150 transform">▶</span>--> {{ item.name }}
                         </summary>
                         <div class="ml-4"> <!-- Indent "Other Chats" contents slightly more -->
