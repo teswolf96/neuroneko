@@ -122,8 +122,19 @@
         {% block content %}
         <div class="bg-gray-800 p-4 rounded"> <!-- Added mb-4 for spacing -->
             <div class="flex items-center justify-between text-sm mb-2">
-                <span>Model: <span id="chat-model-name">claude-3-7-sonnet-20250219</span></span>
-                <span>Max Output: 64000</span>
+                <div>
+                    Model: 
+                    <select id="chat-model-select" class="bg-gray-700 text-white text-sm rounded p-1 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                        {% if available_models %}
+                            {% for model in available_models %}
+                                <option value="{{ model.id }}">{{ model.name }}</option>
+                            {% endfor %}
+                        {% else %}
+                            <option value="">No models available</option>
+                        {% endif %}
+                    </select>
+                </div>
+                <span>Max Output: 64000</span> <!-- This might also become dynamic later -->
                 <span>Temperature: <span id="chat-model-temp">0.8</span></span>
                 <!-- <span>Top-p: 1</span>
                 <span>Presence Penalty: 0</span>
@@ -170,9 +181,9 @@
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const chatItems = document.querySelectorAll('.chat-item');
-            const chatModelNameEl = document.getElementById('chat-model-name');
+            const chatModelSelectEl = document.getElementById('chat-model-select'); // Changed from chatModelNameEl
             const chatModelTempEl = document.getElementById('chat-model-temp');
-            const chatSystemPromptEl = document.getElementById('chat-system-prompt');
+            // const chatSystemPromptEl = document.getElementById('chat-system-prompt'); // System prompt display removed for now
             const chatMessagesContainerEl = document.getElementById('chat-messages-container');
             const messageInputTextarea = document.querySelector('textarea[placeholder="Type a message or click / for prompts..."]');
             const saveButton = document.querySelector('button.bg-gray-600.px-4.py-2.rounded.w-full'); // More specific selector if needed
@@ -671,7 +682,15 @@
                         })
                         .then(data => {
                             console.log("Chat details:", data);
-                            chatModelNameEl.textContent = data.ai_model_name || 'N/A';
+                            // Set the selected model in the dropdown
+                            if (data.ai_model_used_id) {
+                                chatModelSelectEl.value = data.ai_model_used_id;
+                            } else {
+                                // If no specific model ID, try to select the first option or handle as needed
+                                if (chatModelSelectEl.options.length > 0) {
+                                    chatModelSelectEl.selectedIndex = 0; 
+                                }
+                            }
                             chatModelTempEl.textContent = data.temperature || 'N/A';
                             // chatSystemPromptEl.textContent = data.system_prompt || 'No system prompt set.';
                             
@@ -1152,7 +1171,7 @@
                                     } else {
                                         // No chats left, clear the display
                                         chatMessagesContainerEl.innerHTML = '<p class="text-gray-500 p-4">No chats available. Create a new one!</p>';
-                                        chatModelNameEl.textContent = 'N/A';
+                                        if (chatModelSelectEl.options.length > 0) chatModelSelectEl.selectedIndex = 0; // Reset dropdown
                                         chatModelTempEl.textContent = 'N/A';
                                         // chatSystemPromptEl.textContent = 'No system prompt set.';
                                         currentChatId = null;
@@ -1316,6 +1335,57 @@
                     });
                 });
             });
+
+            // Event listener for chat model selection change
+            if (chatModelSelectEl) {
+                chatModelSelectEl.addEventListener('change', function() {
+                    const selectedModelId = this.value;
+                    if (!currentChatId) {
+                        alert('Please select a chat first.');
+                        // Optionally revert selection if no chat is active
+                        // For now, we allow the change, but it won't be saved.
+                        return;
+                    }
+                    if (!selectedModelId) {
+                        alert('Invalid model selected.');
+                        return;
+                    }
+
+                    fetch(`/api/chat/${currentChatId}/set_model/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({ model_id: selectedModelId })
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.status === 'success') {
+                            // Optionally, provide user feedback (e.g., a small temporary notification)
+                            console.log(`Chat model updated to ${data.new_model_name}`);
+                            // The UI (dropdown) already reflects the change.
+                            // If other parts of the UI depend on the model name directly (not just ID), they might need an update.
+                            // For now, the dropdown itself is the primary indicator.
+                        } else {
+                            alert('Error updating chat model: ' + (data.error || 'Unknown error'));
+                            // Optionally, revert the dropdown selection if the backend update fails.
+                            // This would require storing the previous value.
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error updating chat model:', error);
+                        alert('Error updating chat model: ' + error.message);
+                        // Optionally, revert dropdown selection
+                    });
+                });
+            }
+
         });
     </script>
     {% endblock %}

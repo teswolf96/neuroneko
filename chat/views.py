@@ -42,9 +42,14 @@ def index_view(request):
     # If no folders and no other chats, ensure "Other Chats" is not added if it would be empty.
     # The above logic handles this by only adding "Other Chats" if other_chats.exists().
 
+    # Get available AI models for the user
+    user_endpoints = AIEndpoint.objects.filter(user=request.user)
+    available_models = AIModel.objects.filter(endpoint__in=user_endpoints).order_by('name')
+
     return render(request, 'chat/index.html', {
         'folder_structure': folder_structure,
-        'last_active_chat_id': last_active_chat_id
+        'last_active_chat_id': last_active_chat_id,
+        'available_models': available_models
     })
 
 @login_required
@@ -436,6 +441,7 @@ def get_chat_details_api(request, chat_id):
 
 
     ai_model_name = chat.ai_model_used.name if chat.ai_model_used else (user_settings.default_model.name if user_settings.default_model else "N/A")
+    ai_model_used_id = chat.ai_model_used.id if chat.ai_model_used else (user_settings.default_model.id if user_settings.default_model else None)
     temperature = chat.ai_temperatue # This should be chat.ai_temperature (typo in model)
 
     return JsonResponse({
@@ -443,6 +449,7 @@ def get_chat_details_api(request, chat_id):
         'title': chat.title,
         'messages': messages_data,
         'ai_model_name': ai_model_name,
+        'ai_model_used_id': ai_model_used_id,
         'temperature': temperature,
         'system_prompt': user_settings.system_prompt # This should probably be chat-specific if we add it to Chat model
     })
@@ -675,3 +682,30 @@ def move_chat_to_folder_api(request, chat_id):
     chat.save()
     
     return JsonResponse({'status': 'success', 'message': 'Chat moved successfully.'})
+
+@login_required
+@require_POST
+def set_chat_model_api(request, chat_id):
+    chat = get_object_or_404(Chat, id=chat_id, user=request.user)
+    try:
+        data = json.loads(request.body)
+        model_id = data.get('model_id')
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'error': 'Invalid JSON.'}, status=400)
+
+    if model_id is None: # Check for None explicitly, as 0 could be a valid ID in some systems (though not typical for Django PKs)
+        return JsonResponse({'status': 'error', 'error': 'Model ID is required.'}, status=400)
+
+    try:
+        # Ensure the model exists and belongs to an endpoint owned by the user
+        ai_model = get_object_or_404(AIModel, id=model_id, endpoint__user=request.user)
+    except AIModel.DoesNotExist:
+        return JsonResponse({'status': 'error', 'error': 'AI Model not found or not accessible by user.'}, status=404)
+    except ValueError: # Handles if model_id is not a valid integer for PK
+        return JsonResponse({'status': 'error', 'error': 'Invalid Model ID format.'}, status=400)
+
+
+    chat.ai_model_used = ai_model
+    chat.save(update_fields=['ai_model_used'])
+    
+    return JsonResponse({'status': 'success', 'message': f"Chat model updated to '{ai_model.name}'.", 'new_model_name': ai_model.name, 'new_model_id': ai_model.id})
