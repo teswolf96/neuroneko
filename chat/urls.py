@@ -13,4 +13,5 @@ urlpatterns = [
     path('api/chat/<int:chat_id>/set_active_child/', views.set_active_child_view, name='set_active_child'),
     path('api/chat/<int:chat_id>/message/<int:message_id>/delete/', views.delete_message_view, name='delete_message'),
     path('api/chat/<int:chat_id>/message/<int:source_message_id>/add_sibling/', views.add_sibling_view, name='add_sibling_message'),
+    path('api/chat/<int:chat_id>/message/<int:message_id>/update_content/', views.update_message_content, name='update_message_content'),
 ]

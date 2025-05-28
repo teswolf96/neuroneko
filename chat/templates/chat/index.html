@@ -227,6 +227,90 @@
                 editButton.innerHTML = '✏️'; // Unicode for Edit
                 editButton.title = 'Edit';
                 editButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none');
+                editButton.addEventListener('click', function() {
+                    const messageId = messageDiv.dataset.messageId;
+                    if (!messageId || !currentChatId) {
+                        alert('Error: Message or Chat ID missing.');
+                        return;
+                    }
+
+                    // Prevent multiple edit UIs
+                    if (messageDiv.querySelector('.editing-interface')) {
+                        return;
+                    }
+
+                    contentP.style.display = 'none';
+                    iconsDiv.style.display = 'none'; // Hide the standard icons
+
+                    const editingInterfaceDiv = document.createElement('div');
+                    editingInterfaceDiv.classList.add('editing-interface', 'my-2'); // Added my-2 for spacing
+
+                    const textarea = document.createElement('textarea');
+                    textarea.value = contentP.textContent;
+                    textarea.classList.add('w-full', 'bg-gray-800', 'p-2', 'rounded', 'text-white', 'border', 'border-gray-600', 'focus:border-blue-500', 'focus:ring-1', 'focus:ring-blue-500');
+                    textarea.rows = 3;
+
+                    const editControlsDiv = document.createElement('div');
+                    editControlsDiv.classList.add('flex', 'space-x-2', 'mt-2');
+
+                    const saveEditButton = document.createElement('button');
+                    saveEditButton.textContent = 'Save';
+                    saveEditButton.classList.add('bg-blue-500', 'hover:bg-blue-600', 'text-white', 'px-3', 'py-1', 'rounded', 'text-sm');
+                    saveEditButton.addEventListener('click', function() {
+                        const newText = textarea.value;
+                        fetch(`/api/chat/${currentChatId}/message/${messageId}/update_content/`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': '{{ csrf_token }}'
+                            },
+                            body: JSON.stringify({ new_content: newText })
+                        })
+                        .then(response => {
+                            if (!response.ok) {
+                                return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            contentP.textContent = newText;
+                            // Restore UI
+                            editingInterfaceDiv.remove();
+                            contentP.style.display = '';
+                            iconsDiv.style.display = 'flex'; // Assuming it was flex
+                        })
+                        .catch(error => {
+                            console.error('Error updating message content:', error);
+                            alert('Error saving message: ' + error.message);
+                            // Optionally, restore UI even on error, or leave textarea
+                            // For now, let's restore it to avoid getting stuck
+                            editingInterfaceDiv.remove();
+                            contentP.style.display = '';
+                            iconsDiv.style.display = 'flex';
+                        });
+                    });
+
+                    const generateButton = document.createElement('button');
+                    generateButton.textContent = 'Generate';
+                    generateButton.classList.add('bg-green-500', 'hover:bg-green-600', 'text-white', 'px-3', 'py-1', 'rounded', 'text-sm');
+                    generateButton.addEventListener('click', function() {
+                        console.log(`Generate clicked for message ID: ${messageId}`);
+                        // Placeholder for future functionality
+                    });
+
+                    editControlsDiv.appendChild(saveEditButton);
+                    editControlsDiv.appendChild(generateButton);
+
+                    editingInterfaceDiv.appendChild(textarea);
+                    editingInterfaceDiv.appendChild(editControlsDiv);
+
+                    // Insert the editing interface: after roleSelect, before footerDiv
+                    // messageDiv structure: roleSelect, contentP, footerDiv(iconsDiv, plusButtonDiv, navArrowsDiv)
+                    // We want to insert it after roleSelect, and contentP is hidden.
+                    // footerDiv contains iconsDiv, which is also hidden.
+                    // So, insert before footerDiv.
+                    messageDiv.insertBefore(editingInterfaceDiv, footerDiv);
+                });
 
                 const deleteButton = document.createElement('button');
                 deleteButton.innerHTML = '🗑️'; // Unicode for Delete

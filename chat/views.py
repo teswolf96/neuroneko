@@ -411,3 +411,35 @@ def add_sibling_view(request, chat_id, source_message_id):
     except Exception as e:
         # Log e for debugging
         return JsonResponse({'error': str(e)}, status=500)
+
+@login_required
+@require_POST # Ensures this view only accepts POST requests
+def update_message_content(request, chat_id, message_id):
+    try:
+        data = json.loads(request.body)
+        new_content = data.get('new_content')
+
+        if new_content is None: # Check for None explicitly, as empty string might be valid
+            return JsonResponse({'error': 'New content is required.'}, status=400)
+
+        # Ensure the user owns the chat and the message belongs to that chat
+        chat = get_object_or_404(Chat, pk=chat_id, user=request.user)
+        message_to_update = get_object_or_404(Message, pk=message_id, chat=chat)
+
+        message_to_update.message = new_content # 'message' is the field name in the Message model for content
+        message_to_update.save(update_fields=['message'])
+
+        return JsonResponse({'status': 'success', 'message': 'Message content updated successfully.'})
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
+    except Chat.DoesNotExist:
+        return JsonResponse({'error': 'Chat not found or you do not have permission to access it.'}, status=404)
+    except Message.DoesNotExist:
+        return JsonResponse({'error': 'Message not found in this chat.'}, status=404)
+    except Exception as e:
+        # Log the exception e for server-side debugging
+        # import logging
+        # logger = logging.getLogger(__name__)
+        # logger.error(f"Error updating message content: {e}")
+        return JsonResponse({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
