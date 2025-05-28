@@ -1,0 +1,61 @@
+{% extends "chat/index.html" %} {# Assuming index.html can serve as a base or you have a base.html #}
+
+{% block title %}User Settings{% endblock %}
+
+{% block content %}
+<div class="bg-gray-800 p-6 rounded-lg shadow-lg text-white">
+    <h2 class="text-2xl font-semibold mb-6">User Settings</h2>
+
+    {% if messages %}
+        <div class="mb-4">
+            {% for message in messages %}
+                <div class="p-3 rounded {% if message.tags == 'success' %}bg-green-500{% elif message.tags == 'error' %}bg-red-500{% else %}bg-blue-500{% endif %} text-white">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <form method="post" class="space-y-6">
+        {% csrf_token %}
+        
+        {% for field in form %}
+            <div class="flex flex-col">
+                <label for="{{ field.id_for_label }}" class="mb-2 font-medium text-gray-300">{{ field.label }}</label>
+                {% if field.name == 'default_model' %}
+                    <select name="{{ field.name }}" id="{{ field.id_for_label }}" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+                        {% for choice_value, choice_label in field.field.choices %}
+                            <option value="{{ choice_value }}" {% if field.value|stringformat:"s" == choice_value|stringformat:"s" %}selected{% endif %}>
+                                {{ choice_label }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                {% elif field.name == 'system_prompt' %}
+                     <textarea name="{{ field.name }}" id="{{ field.id_for_label }}" rows="4" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">{{ field.value|default_if_none:"" }}</textarea>
+                {% else %}
+                    <input type="{{ field.field.widget.input_type }}" name="{{ field.name }}" id="{{ field.id_for_label }}" value="{{ field.value|default_if_none:"" }}" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+                {% endif %}
+                {% if field.help_text %}
+                    <p class="mt-1 text-xs text-gray-400">{{ field.help_text }}</p>
+                {% endif %}
+                {% if field.errors %}
+                    <div class="mt-1 text-red-400 text-xs">
+                        {% for error in field.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        {% endfor %}
+        
+        <div class="flex items-center space-x-4">
+            <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50">
+                Save Settings
+            </button>
+            <a href="{% url 'index' %}" class="text-gray-400 hover:text-white py-2 px-4 rounded-lg border border-gray-600 hover:bg-gray-700">
+                Back to Chat
+            </a>
+        </div>
+    </form>
+</div>
+{% endblock %}

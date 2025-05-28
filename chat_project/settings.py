@@ -26,6 +26,9 @@ SECRET_KEY = 'django-insecure-+qoz-4l$a)-x8=gxd*lx97$6a@$svqyqtkk)523l1j80_+tei0
 DEBUG = True
 
 ALLOWED_HOSTS = []
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'index'
+
 
 
 # Application definition
@@ -118,6 +121,13 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles' # Directory where collectstatic will gather them
+
+# You might also want to define STATICFILES_DIRS if you have project-specific static files
+# not tied to an app, e.g.:
+# STATICFILES_DIRS = [
+#     BASE_DIR / "static",
+# ]
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field

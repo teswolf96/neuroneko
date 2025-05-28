@@ -1,148 +1,181 @@
+{% load static %}
+
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="utf-8"/>
-    <title>WebSocket Chat Demo</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        
-        .chat-container {
-            background-color: white;
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        
-        h1 {
-            text-align: center;
-            color: #333;
-            margin-bottom: 30px;
-        }
-
-        #chat-log {
-            height: 400px;
-            overflow-y: auto;
-            border: 1px solid #ddd;
-            padding: 15px;
-            margin-bottom: 20px;
-            background-color: #fafafa;
-            border-radius: 5px;
-        }
-        
-        .message {
-            margin-bottom: 10px;
-            padding: 8px;
-            border-radius: 5px;
-        }
-        
-        .user-message {
-            background-color: #e3f2fd;
-            border-left: 4px solid #2196f3;
-        }
-        
-        .system-message {
-            background-color: #fff3e0;
-            border-left: 4px solid #ff9800;
-            font-style: italic;
-        }
-        
-        .username {
-            font-weight: bold;
-            margin-right: 10px;
-        }
-        
-        .input-container {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        
-        #username-input {
-            flex: 1;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            font-size: 14px;
-        }
-        
-        #message-input {
-            flex: 3;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            font-size: 14px;
-        }
-        
-        #message-submit {
-            padding: 10px 20px;
-            background-color: #4caf50;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-        
-        #message-submit:hover {
-            background-color: #45a049;
-        }
-        
-        #message-submit:disabled {
-            background-color: #ccc;
-            cursor: not-allowed;
-        }
-        
-        .connection-status {
-            padding: 10px;
-            margin-bottom: 20px;
-            border-radius: 5px;
-            text-align: center;
-            font-weight: bold;
-        }
-        
-        .connected {
-            background-color: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-        
-        .disconnected {
-            background-color: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-    </style>
+    <meta charset="UTF-8">
+    <title>{% block title %}Chat Interface{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    {% block extra_head %}{% endblock %}
 </head>
-<body>
-    <div class="chat-container">
-        <h1>WebSocket Chat Demo</h1>
-        
-        <div id="connection-status" class="connection-status disconnected">
-            Disconnected
-        </div>
-        
-        <div id="chat-log"></div>
-        
-        <div class="input-container">
-            <input id="username-input" type="text" placeholder="Your username..." value="Anonymous">
-            <input id="message-input" type="text" placeholder="Type your message...">
-            <input id="message-submit" type="button" value="Send" disabled>
-        </div>
-        
-        <p><em>This is a simple WebSocket chat demo. Multiple users can join and see messages in real-time!</em></p>
-    </div>
+<body class="bg-gray-900 text-white h-screen flex">
 
+    <!-- Sidebar -->
+    <aside class="w-64 bg-gray-800 p-4 flex flex-col">
+        <button class="bg-gray-700 text-white px-4 py-2 rounded mb-4">+ New Chat</button>
+
+        <div class="flex-1 overflow-y-auto"> <!-- Added overflow-y-auto for scrollable chat list -->
+            {% for item in folder_structure %}
+                {% if item.name != "Other Chats" or item.chats %} <!-- Show folder or "Other Chats" if it has chats -->
+                    <h2 class="text-sm font-bold text-gray-400 mt-4 mb-2 px-2">{{ item.name }}</h2>
+                    {% if item.chats %}
+                        <ul class="space-y-1">
+                            {% for chat in item.chats %}
+                                <li class="text-white py-1 hover:bg-gray-700 rounded px-2 text-sm chat-item">
+                                    {# Placeholder link - replace with actual chat URL later if needed #}
+                                    {# e.g., <a href="{% url 'chat_view' chat.id %}"> #}
+                                    <a href="#" class="chat-link block w-full h-full" data-chat-id="{{ chat.id }}">{{ chat.title|truncatechars:25 }}</a> 
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        {% if item.name != "Other Chats" %} <!-- Don't show "No chats here" for the general "Other Chats" if it's empty by design -->
+                            <p class="text-xs text-gray-500 ml-2 px-2">No chats in this folder.</p>
+                        {% endif %}
+                    {% endif %}
+                {% endif %}
+            {% endfor %}
+        </div>
+
+        <div class="space-y-2 mt-4">
+            <button class="text-sm text-gray-400 flex items-center">Hello, {{ user.username }}!</button>
+            <button class="text-sm text-gray-400 flex">Manage Tags</button>
+            <button class="text-sm text-gray-400 flex">Import / Export</button>
+            <button class="text-sm text-gray-400 flex">API</button>
+            <a href="{% url 'user_settings' %}" class="text-sm text-gray-400 flex">Settings</a>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 p-1 flex flex-col h-screen"> <!-- Added flex flex-col h-screen for layout -->
+        {% block content %}
+        <div class="bg-gray-800 p-4 rounded"> <!-- Added mb-4 for spacing -->
+            <div class="flex items-center justify-between text-sm mb-2">
+                <span>Model: <span id="chat-model-name">claude-3-7-sonnet-20250219</span></span>
+                <span>Max Token: 10000</span>
+                <span>Temperature: 0.8</span>
+                <span>Top-p: 1</span>
+                <span>Presence Penalty: 0</span>
+                <span>Frequency Penalty: 0</span>
+            </div>
+
+            <!-- <div class="bg-gray-700 p-4 rounded mb-4">
+                <span class="text-sm">System</span>
+                <p id="chat-system-prompt">You are playing the role of a friendly and helpful chatbot.</p>
+            </div> -->
+        </div> <!-- Moved closing div for settings/system prompt block -->
+
+        <!-- Chat Messages Area -->
+        <div id="chat-messages-container" class="flex-grow overflow-y-auto bg-gray-750 p-4 rounded mb-4 space-y-2">
+            <p class="text-gray-500">Select a chat to view messages.</p> 
+        </div>
+
+        <!-- Input Area -->
+        <div class="bg-gray-800 p-4 rounded mt-auto"> <!-- mt-auto to push to bottom -->
+            <div class="bg-gray-700 p-4 rounded flex items-start space-x-2">
+                <div class="bg-red-500 px-2 py-1 rounded">User</div>
+                <textarea class="w-full bg-gray-800 p-2 rounded text-white" rows="3" placeholder="Type a message or click / for prompts..."></textarea>
+                <button class="bg-green-500 px-4 py-2 rounded">Generate</button>
+                <button class="bg-gray-600 px-4 py-2 rounded">Save</button>
+            </div>
+
+            <div class="flex space-x-2 mt-2">
+                <button class="bg-gray-600 px-4 py-2 rounded">Prompt</button>
+                <button class="bg-gray-600 px-4 py-2 rounded">Idea</button>
+            </div>
+
+            <div class="flex space-x-2 mt-4">
+                <button class="bg-gray-700 px-3 py-1 rounded">Regen Title</button>
+                <button class="bg-gray-700 px-3 py-1 rounded">Download Chat</button>
+                <button class="bg-gray-700 px-3 py-1 rounded">Clone Chat</button>
+                <button class="bg-gray-700 px-3 py-1 rounded">Continue</button>
+            </div>
+        </div> <!-- Closing div for input area -->
+        {% endblock %}
+    </main>
+    {% block extra_js %}
     <script>
-        const username = document.querySelector('#username-input');
-        const chatLog = document.querySelector('#chat-log');
-        const messageInput = document.querySelector('#message-input');
-        const messageSubmit = document.querySelector('#message-submit');
-        const connectionStatus = document.querySelector('#connection-status');
+        document.addEventListener('DOMContentLoaded', function () {
+            const chatItems = document.querySelectorAll('.chat-item');
+            const chatModelNameEl = document.getElementById('chat-model-name');
+            const chatSystemPromptEl = document.getElementById('chat-system-prompt');
+            const chatMessagesContainerEl = document.getElementById('chat-messages-container');
+            // const messageInputTextarea = document.querySelector('textarea[placeholder="Type a message or click / for prompts..."]');
 
-        // Determine WebSocket URL
+            let currentActiveChatLi = null;
+
+            chatItems.forEach(item => {
+                item.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    const chatLink = this.querySelector('.chat-link');
+                    if (!chatLink) return;
+
+                    const chatId = chatLink.dataset.chatId;
+                    if (!chatId) return;
+
+                    if (currentActiveChatLi) {
+                        currentActiveChatLi.classList.remove('bg-blue-600', 'text-white'); // Example active class
+                        currentActiveChatLi.classList.add('hover:bg-gray-700');
+                    }
+                    this.classList.add('bg-blue-600', 'text-white');
+                    this.classList.remove('hover:bg-gray-700');
+                    currentActiveChatLi = this;
+
+                    fetch(`/api/chat/${chatId}/`)
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error(`HTTP error! status: ${response.status}`);
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            chatModelNameEl.textContent = data.ai_model_name || 'N/A';
+                            //chatSystemPromptEl.textContent = data.system_prompt || 'No system prompt set.';
+                            
+                            chatMessagesContainerEl.innerHTML = ''; 
+                            if (data.messages && data.messages.length > 0) {
+                                data.messages.forEach(msg => {
+                                    const messageDiv = document.createElement('div');
+                                    messageDiv.classList.add('p-3', 'rounded-lg', 'break-words', 'mb-2'); 
+                                    
+                                    const roleSpan = document.createElement('span');
+                                    roleSpan.classList.add('font-semibold', 'text-xs', 'block', 'mb-1'); // text-xs for smaller role
+                                   
+                                    const contentP = document.createElement('p');
+                                    contentP.classList.add('text-sm');
+                                    contentP.textContent = msg.content;
+
+                                    if (msg.role === 'user') {
+                                        messageDiv.classList.add('bg-indigo-500', 'ml-auto', 'text-white'); 
+                                        roleSpan.textContent = 'User';
+                                        roleSpan.classList.add('text-indigo-200');
+                                    } else { // assistant or other roles
+                                        messageDiv.classList.add('bg-gray-600', 'mr-auto', 'text-gray-100'); 
+                                        roleSpan.textContent = 'Assistant'; // Or msg.role capitalized
+                                        roleSpan.classList.add('text-gray-400');
+                                    }
+                                    
+                                    messageDiv.appendChild(roleSpan);
+                                    messageDiv.appendChild(contentP);
+                                    chatMessagesContainerEl.appendChild(messageDiv);
+                                });
+                            } else {
+                                chatMessagesContainerEl.innerHTML = '<p class="text-gray-500 p-4">No messages in this chat yet.</p>';
+                            }
+                            chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
+                        })
+                        .catch(error => {
+                            console.error('Error fetching chat details:', error);
+                            chatMessagesContainerEl.innerHTML = '<p class="text-red-400 p-4">Error loading chat. Please try again.</p>';
+                            if (currentActiveChatLi) {
+                                currentActiveChatLi.classList.remove('bg-blue-600', 'text-white');
+                                currentActiveChatLi.classList.add('hover:bg-gray-700');
+                            }
+                        });
+                });
+            });
+        });
+    </script>
+    {% endblock %}
+</body>
+</html>
