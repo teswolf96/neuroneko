@@ -53,10 +53,10 @@
             <div class="flex items-center justify-between text-sm mb-2">
                 <span>Model: <span id="chat-model-name">claude-3-7-sonnet-20250219</span></span>
                 <span>Max Token: 10000</span>
-                <span>Temperature: 0.8</span>
-                <span>Top-p: 1</span>
+                <span>Temperature: <span id="chat-model-temp">0.8</span></span>
+                <!-- <span>Top-p: 1</span>
                 <span>Presence Penalty: 0</span>
-                <span>Frequency Penalty: 0</span>
+                <span>Frequency Penalty: 0</span> -->
             </div>
 
             <!-- <div class="bg-gray-700 p-4 rounded mb-4">
@@ -74,16 +74,18 @@
         <div class="bg-gray-800 p-4 rounded mt-auto"> <!-- mt-auto to push to bottom -->
             <div class="bg-gray-700 p-4 rounded flex items-start space-x-2">
                 <div class="bg-red-500 px-2 py-1 rounded">User</div>
-                <textarea class="w-full bg-gray-800 p-2 rounded text-white" rows="3" placeholder="Type a message or click / for prompts..."></textarea>
-                <button class="bg-green-500 px-4 py-2 rounded">Generate</button>
-                <button class="bg-gray-600 px-4 py-2 rounded">Save</button>
+                <textarea class="w-full bg-gray-800 p-2 rounded text-white" rows="4" placeholder="Type a message or click / for prompts..."></textarea>
+                <!-- Button column for Generate, Save, Prompt, Idea -->
+                <div class="flex flex-col space-y-1">
+                    <button class="bg-green-500 px-4 py-2 rounded w-full">Generate</button>
+                    <button class="bg-gray-600 px-4 py-2 rounded w-full">Save</button>
+                    <div class="flex space-x-1 mt-1">
+                        <button class="bg-gray-600 px-3 py-1 rounded text-xs flex-grow">Prompt</button>
+                        <button class="bg-gray-600 px-3 py-1 rounded text-xs flex-grow">Idea</button>
+                    </div>
+                </div>
             </div>
-
-            <div class="flex space-x-2 mt-2">
-                <button class="bg-gray-600 px-4 py-2 rounded">Prompt</button>
-                <button class="bg-gray-600 px-4 py-2 rounded">Idea</button>
-            </div>
-
+            <!-- The div that previously held Prompt and Idea buttons is removed by not including it here -->
             <div class="flex space-x-2 mt-4">
                 <button class="bg-gray-700 px-3 py-1 rounded">Regen Title</button>
                 <button class="bg-gray-700 px-3 py-1 rounded">Download Chat</button>
@@ -98,6 +100,7 @@
         document.addEventListener('DOMContentLoaded', function () {
             const chatItems = document.querySelectorAll('.chat-item');
             const chatModelNameEl = document.getElementById('chat-model-name');
+            const chatModelTempEl = document.getElementById('chat-model-temp');
             const chatSystemPromptEl = document.getElementById('chat-system-prompt');
             const chatMessagesContainerEl = document.getElementById('chat-messages-container');
             // const messageInputTextarea = document.querySelector('textarea[placeholder="Type a message or click / for prompts..."]');
@@ -130,7 +133,9 @@
                             return response.json();
                         })
                         .then(data => {
+                            console.log(data)
                             chatModelNameEl.textContent = data.ai_model_name || 'N/A';
+                            chatModelTempEl.textContent = data.temperature || 'N/A';
                             //chatSystemPromptEl.textContent = data.system_prompt || 'No system prompt set.';
                             
                             chatMessagesContainerEl.innerHTML = ''; 

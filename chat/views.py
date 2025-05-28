@@ -100,5 +100,6 @@ def get_chat_details(request, chat_id):
         'ai_model_name': ai_model_name,
         'system_prompt': user_settings.system_prompt,
         'messages': messages_data,
+        'temperature': chat.ai_temperatue
     }
     return JsonResponse(chat_data)

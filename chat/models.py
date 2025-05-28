@@ -9,6 +9,7 @@ class UserSettings(models.Model):
     theme = models.CharField(max_length=50, default='light', help_text="User's preferred UI theme (e.g., 'light', 'dark')")
     system_prompt = models.TextField(default="You are playing the role of a friendly and helpful chatbot.", help_text="Default system prompt for the user's interactions.")
     last_active_chat = models.ForeignKey('Chat', on_delete=models.SET_NULL, null=True, blank=True, related_name='+', help_text="The last chat session the user had open")
+    default_temp = models.FloatField('Default Temp', default=1.0)
     # For more complex or numerous settings, a JSONField could be used:
     # preferences = models.JSONField(default=dict, help_text="User-specific preferences as a JSON object")
     # Add other user-specific settings here, e.g., items_per_page, notification_preferences
@@ -53,7 +54,7 @@ class Chat(models.Model):
     root_message = models.ForeignKey('Message', on_delete=models.SET_NULL, null=True, blank=True, related_name='+', help_text="The first message in this chat, acting as the root of the conversation tree")
     # Optional: Store the AI model used for this specific chat
     ai_model_used = models.ForeignKey(AIModel, on_delete=models.SET_NULL, null=True, blank=True, help_text="The AI model used for this chat session")
-
+    ai_temperatue = models.FloatField('AI Temperature', default=1.0)
 
     def __str__(self):
         return f"'{self.title}' by {self.user.username}"
