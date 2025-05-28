@@ -233,6 +233,55 @@
                 deleteButton.title = 'Delete';
                 deleteButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none');
 
+                deleteButton.addEventListener('click', function() {
+                    const messageIdToDelete = messageDiv.dataset.messageId;
+                    if (!messageIdToDelete) {
+                        console.error('Message ID not found for deletion.');
+                        alert('Cannot delete message: ID missing.');
+                        return;
+                    }
+
+                    if (!currentChatId) {
+                        console.error('Current chat ID not found for deletion.');
+                        alert('Cannot delete message: Chat context missing.');
+                        return;
+                    }
+
+                    if (window.confirm('Are you sure you want to delete this message and all its replies?')) {
+                        fetch(`/api/chat/${currentChatId}/message/${messageIdToDelete}/delete/`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': '{{ csrf_token }}'
+                            },
+                        })
+                        .then(response => {
+                            if (!response.ok) {
+                                return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            console.log('Message deletion successful:', data.message);
+                            // Re-fetch chat details to update UI
+                            const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                            if (activeChatListItem) {
+                                activeChatListItem.click();
+                            } else if (currentChatId) { // Fallback if active class is lost
+                                const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                                if (targetChatLink) {
+                                    const targetChatItem = targetChatLink.closest('.chat-item');
+                                    if (targetChatItem) targetChatItem.click();
+                                }
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error deleting message:', error);
+                            alert('Error deleting message: ' + error.message);
+                        });
+                    }
+                });
+
                 iconsDiv.appendChild(copyButton);
                 iconsDiv.appendChild(editButton);
                 iconsDiv.appendChild(deleteButton);

@@ -1,8 +1,9 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.http import JsonResponse, HttpResponseBadRequest
+from django.http import JsonResponse, HttpResponseBadRequest, Http404
 from django.views.decorators.http import require_POST
+from django.db import transaction # Added for atomic transactions
 import json
 
 from .models import Chat, Folder, UserSettings, Message # Added Message
@@ -333,3 +334,38 @@ def update_message_role(request, chat_id, message_id):
         # Log the exception e for server-side debugging
         # logger.error(f"Error updating message role: {e}")
         return JsonResponse({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
+
+@login_required
+@require_POST
+@transaction.atomic
+def delete_message_view(request, chat_id, message_id):
+    try:
+        chat = get_object_or_404(Chat, id=chat_id, user=request.user)
+        message_to_delete = get_object_or_404(Message, id=message_id, chat=chat)
+    except Http404:
+        return JsonResponse({'status': 'error', 'error': 'Chat or Message not found or permission denied.'}, status=404)
+
+    parent_message = message_to_delete.parent
+
+    # If the deleted message has a parent and was its active child
+    if parent_message and parent_message.active_child_id == message_to_delete.id:
+        # Find other siblings to potentially set as new active child
+        siblings = list(parent_message.children.exclude(id=message_to_delete.id).order_by('-created_at'))
+
+        new_active_child = None
+        if siblings:
+            new_active_child = siblings[0] # Select the most recent remaining sibling
+
+        parent_message.active_child = new_active_child
+        parent_message.save(update_fields=['active_child'])
+
+    # Recursively delete the message and all its children
+    def _recursive_delete(message_node):
+        children_to_delete = list(message_node.children.all()) # Materialize queryset before iterating
+        for child in children_to_delete:
+            _recursive_delete(child)
+        message_node.delete()
+
+    _recursive_delete(message_to_delete)
+
+    return JsonResponse({'status': 'success', 'message': 'Message and its replies deleted successfully.'})
