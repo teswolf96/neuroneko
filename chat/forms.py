@@ -34,7 +34,9 @@ class AIEndpointForm(forms.ModelForm):
         model = AIEndpoint
         fields = ['name', 'url', 'apikey']
         widgets = {
-            'apikey': forms.PasswordInput(render_value=False, attrs={'placeholder': 'Enter API Key'}),
+            'name': forms.TextInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
+            'url': forms.TextInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
+            'apikey': forms.PasswordInput(render_value=False, attrs={'placeholder': 'Enter API Key', 'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
         }
         help_texts = {
             'name': "A friendly name for this API configuration (e.g., 'My Personal OpenAI').",
@@ -72,6 +74,13 @@ class AIModelForm(forms.ModelForm):
     class Meta:
         model = AIModel
         fields = ['name', 'model_id', 'endpoint', 'default_temperature', 'default_max_tokens']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
+            'model_id': forms.TextInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
+            'endpoint': forms.Select(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
+            'default_temperature': forms.NumberInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
+            'default_max_tokens': forms.NumberInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
+        }
         help_texts = {
             'name': "A friendly display name for this model (e.g., 'GPT-4 Turbo').",
             'model_id': "The exact model ID used by the API provider (e.g., 'gpt-4-1106-preview').",
