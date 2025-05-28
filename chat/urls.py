@@ -36,4 +36,5 @@ urlpatterns = [
     path('api/folder/rename/', views.rename_folder_api, name='rename_folder_api'),
     path('api/folder/delete/', views.delete_folder_api, name='delete_folder_api'),
     path('api/folder/<int:folder_id>/toggle_open/', views.toggle_folder_open_api, name='toggle_folder_open_api'),
+    path('api/chat/<int:chat_id>/move_to_folder/', views.move_chat_to_folder_api, name='move_chat_to_folder_api'),
 ]

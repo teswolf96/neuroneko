@@ -650,3 +650,28 @@ def toggle_folder_open_api(request, folder_id):
         return JsonResponse({'status': 'success', 'message': 'Folder state updated.', 'is_open': folder.is_open})
     except Exception as e:
         return JsonResponse({'status': 'error', 'error': str(e)}, status=500)
+
+@login_required
+@require_POST
+def move_chat_to_folder_api(request, chat_id):
+    chat = get_object_or_404(Chat, id=chat_id, user=request.user)
+    try:
+        data = json.loads(request.body)
+        target_folder_id_str = data.get('target_folder_id')
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'error': 'Invalid JSON.'}, status=400)
+
+    target_folder = None
+    if target_folder_id_str is not None and target_folder_id_str != "other-chats-target":
+        try:
+            target_folder_id = int(target_folder_id_str)
+            target_folder = get_object_or_404(Folder, id=target_folder_id, user=request.user)
+        except ValueError:
+            return JsonResponse({'status': 'error', 'error': 'Invalid folder ID format.'}, status=400)
+        except Folder.DoesNotExist:
+            return JsonResponse({'status': 'error', 'error': 'Target folder not found.'}, status=404)
+    
+    chat.folder = target_folder
+    chat.save()
+    
+    return JsonResponse({'status': 'success', 'message': 'Chat moved successfully.'})

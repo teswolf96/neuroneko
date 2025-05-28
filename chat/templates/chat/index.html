@@ -14,6 +14,14 @@
             -ms-user-select: none; /* IE10+/Edge */
             user-select: none; /* Standard */
         }
+        .is-dragging {
+            opacity: 0.5;
+            background-color: #4a5568; /* gray-700 */
+        }
+        .drop-hover {
+            background-color: #2d3748 !important; /* gray-800, using important to override potential inline styles or more specific selectors */
+            border: 2px dashed #718096; /* gray-500 */
+        }
     </style>
     {% block extra_head %}{% endblock %}
 </head>
@@ -50,11 +58,11 @@
                                         <button class="delete-folder-button text-gray-400 hover:text-white text-xs focus:outline-none" title="Delete Folder">🗑️</button>
                                     </div>
                                 </summary>
-                                <div class="ml-4"> <!-- Indent chats within each folder -->
+                                <div class="ml-4 folder-drop-target" data-folder-id="{{ item.id }}"> <!-- Indent chats within each folder, ADDED folder-drop-target and data-folder-id -->
                                     {% if item.chats %}
                                         <ul class="space-y-1">
                                             {% for chat in item.chats %}
-                                                <li class="text-white py-1 hover:bg-gray-700 rounded px-2 text-sm chat-item flex items-center justify-between" data-chat-id="{{ chat.id }}" data-chat-full-title="{{ chat.title }}">
+                                                <li class="text-white py-1 hover:bg-gray-700 rounded px-2 text-sm chat-item flex items-center justify-between" data-chat-id="{{ chat.id }}" data-chat-full-title="{{ chat.title }}" draggable="true">
                                                     <a href="#" class="chat-link flex-grow" data-chat-id="{{ chat.id }}">{{ chat.title|truncatechars:25 }}</a>
                                                     <div class="chat-actions flex space-x-2 ml-2 hidden">
                                                         <button class="rename-chat-button text-gray-400 hover:text-white text-xs focus:outline-none" title="Rename">✏️</button>
@@ -81,10 +89,10 @@
                         <summary class="text-sm font-bold text-gray-400 mt-4 mb-2 px-2 cursor-pointer list-none flex items-center unselectable">
                              <!-- <span class="group-open:rotate-90 inline-block mr-1 transition-transform duration-150 transform">▶</span>--> {{ item.name }}
                         </summary>
-                        <div class="ml-4"> <!-- Indent "Other Chats" contents slightly more -->
+                        <div class="ml-4 folder-drop-target" data-folder-id="other-chats-target"> <!-- Indent "Other Chats" contents, ADDED folder-drop-target and data-folder-id -->
                             <ul class="space-y-1">
                                 {% for chat in item.chats %}
-                                    <li class="text-white py-1 hover:bg-gray-700 rounded px-2 text-sm chat-item flex items-center justify-between" data-chat-id="{{ chat.id }}" data-chat-full-title="{{ chat.title }}">
+                                    <li class="text-white py-1 hover:bg-gray-700 rounded px-2 text-sm chat-item flex items-center justify-between" data-chat-id="{{ chat.id }}" data-chat-full-title="{{ chat.title }}" draggable="true">
                                         <a href="#" class="chat-link flex-grow" data-chat-id="{{ chat.id }}">{{ chat.title|truncatechars:25 }}</a>
                                         <div class="chat-actions flex space-x-2 ml-2 hidden">
                                             <button class="rename-chat-button text-gray-400 hover:text-white text-xs focus:outline-none" title="Rename">✏️</button>
@@ -1199,6 +1207,112 @@
                     })
                     .catch(error => {
                         console.error('Network error updating folder state:', error);
+                    });
+                });
+            });
+
+            // Drag and Drop Chat Functionality
+            let draggedItem = null;
+
+            document.querySelectorAll('.chat-item').forEach(item => {
+                item.addEventListener('dragstart', function(event) {
+                    draggedItem = event.target.closest('.chat-item');
+                    event.dataTransfer.setData('text/plain', draggedItem.dataset.chatId);
+                    setTimeout(() => { // Timeout to allow browser to capture the drag image
+                        draggedItem.classList.add('is-dragging');
+                    }, 0);
+                });
+
+                item.addEventListener('dragend', function(event) {
+                    if (draggedItem) {
+                        draggedItem.classList.remove('is-dragging');
+                    }
+                    draggedItem = null;
+                    // Remove hover effect from all potential drop targets
+                    document.querySelectorAll('.folder-drop-target').forEach(target => {
+                        target.classList.remove('drop-hover');
+                    });
+                });
+            });
+
+            document.querySelectorAll('.folder-drop-target').forEach(target => {
+                target.addEventListener('dragover', function(event) {
+                    event.preventDefault(); // Necessary to allow dropping
+                    target.classList.add('drop-hover');
+                });
+
+                target.addEventListener('dragleave', function(event) {
+                    target.classList.remove('drop-hover');
+                });
+
+                target.addEventListener('drop', function(event) {
+                    event.preventDefault();
+                    target.classList.remove('drop-hover');
+                    const chatId = event.dataTransfer.getData('text/plain');
+                    const targetFolderId = target.dataset.folderId; // This will be folder ID or "other-chats-target"
+                    
+                    const itemToMove = draggedItem; // Capture the draggedItem at the moment of drop
+
+                    if (!chatId || !itemToMove) {
+                        console.error("Chat ID or dragged item not found at drop time.");
+                        // If itemToMove is null here, it means dragend might have already cleared draggedItem.
+                        // A page reload might be the safest recovery if itemToMove is null.
+                        if (!itemToMove && chatId) { // If we have a chat ID but no item, something went wrong with drag state
+                            console.warn("draggedItem was null but chatId present, reloading to reflect potential server-side changes.");
+                            window.location.reload();
+                        }
+                        return;
+                    }
+                    
+                    // Prevent dropping a chat into its current folder's list (visually it's already there)
+                    const currentParentDropTarget = itemToMove.closest('.folder-drop-target');
+                    if (currentParentDropTarget && currentParentDropTarget.dataset.folderId === targetFolderId) {
+                        console.log("Chat is already in this folder.");
+                        // Ensure is-dragging is removed if dragend didn't catch it due to early return
+                        if(itemToMove) itemToMove.classList.remove('is-dragging');
+                        return; // No action needed
+                    }
+
+                    fetch(`/api/chat/${chatId}/move_to_folder/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({ target_folder_id: targetFolderId })
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.status === 'success') {
+                            // Move the chat item in the DOM
+                            const targetList = target.querySelector('ul');
+                            if (targetList) {
+                                targetList.appendChild(itemToMove); // Use the captured itemToMove
+                            } else {
+                                // This case might happen if a folder is empty and has no <ul> yet,
+                                // or if "Other Chats" is empty and its <ul> was removed or never created.
+                                // For simplicity, we'll reload.
+                                console.warn("Target list (ul) not found in the drop target, reloading page.");
+                                window.location.reload();
+                                return;
+                            }
+                            // If the chat was moved to "Other Chats", and "Other Chats" section wasn't visible,
+                            // we might need to make it visible or just reload.
+                            // For now, direct DOM move is attempted.
+                            // A full page reload is a simpler way to ensure UI consistency after a move.
+                            // window.location.reload(); // Uncomment for simpler update
+                        } else {
+                            alert('Error moving chat: ' + (data.error || 'Unknown error'));
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error moving chat:', error);
+                        alert('Error moving chat: ' + error.message);
                     });
                 });
             });
