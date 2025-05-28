@@ -8,6 +8,7 @@ class UserSettings(models.Model):
     default_model = models.ForeignKey('AIModel', on_delete=models.SET_NULL, null=True, blank=True, help_text="User's preferred default AI model")
     theme = models.CharField(max_length=50, default='light', help_text="User's preferred UI theme (e.g., 'light', 'dark')")
     system_prompt = models.TextField(default="You are playing the role of a friendly and helpful chatbot.", help_text="Default system prompt for the user's interactions.")
+    last_active_chat = models.ForeignKey('Chat', on_delete=models.SET_NULL, null=True, blank=True, related_name='+', help_text="The last chat session the user had open")
     # For more complex or numerous settings, a JSONField could be used:
     # preferences = models.JSONField(default=dict, help_text="User-specific preferences as a JSON object")
     # Add other user-specific settings here, e.g., items_per_page, notification_preferences

@@ -103,6 +103,7 @@
             // const messageInputTextarea = document.querySelector('textarea[placeholder="Type a message or click / for prompts..."]');
 
             let currentActiveChatLi = null;
+            const lastActiveChatIdFromDjango = '{{ last_active_chat_id|default_if_none:"" }}';
 
             chatItems.forEach(item => {
                 item.addEventListener('click', function (event) {
@@ -174,6 +175,22 @@
                         });
                 });
             });
+
+            // Automatically click the last active chat if it exists
+            if (lastActiveChatIdFromDjango && lastActiveChatIdFromDjango !== '') {
+                const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${lastActiveChatIdFromDjango}"]`);
+                if (targetChatLink) {
+                    const targetChatItem = targetChatLink.closest('.chat-item');
+                    if (targetChatItem) {
+                        // The existing click handler on 'targetChatItem' will be triggered
+                        targetChatItem.click(); 
+                    } else {
+                        console.warn(`Could not find .chat-item for chat ID: ${lastActiveChatIdFromDjango}`);
+                    }
+                } else {
+                    console.warn(`Could not find .chat-link for chat ID: ${lastActiveChatIdFromDjango}`);
+                }
+            }
         });
     </script>
     {% endblock %}

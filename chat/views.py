@@ -32,8 +32,15 @@ def index(request):
         'name': "Other Chats",
         'chats': other_chats_list
     })
+
+    last_active_chat_id = None
+    if hasattr(request.user, 'settings') and request.user.settings.last_active_chat:
+        last_active_chat_id = request.user.settings.last_active_chat.id
         
-    return render(request, 'chat/index.html', {'folder_structure': organized_data})
+    return render(request, 'chat/index.html', {
+        'folder_structure': organized_data,
+        'last_active_chat_id': last_active_chat_id
+    })
 
 @login_required
 def manage_user_settings(request):
@@ -56,6 +63,12 @@ def manage_user_settings(request):
 @login_required
 def get_chat_details(request, chat_id):
     chat = get_object_or_404(Chat, pk=chat_id, user=request.user)
+    
+    # Update last_active_chat for the user
+    user_settings, created = UserSettings.objects.get_or_create(user=request.user)
+    user_settings.last_active_chat = chat
+    user_settings.save(update_fields=['last_active_chat'])
+
     # Ensure UserSettings exist, or create with defaults if necessary.
     # The signal handler in models.py should create UserSettings on User creation.
     # However, to be robust, especially if users existed before the signal:
