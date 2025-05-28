@@ -111,13 +111,26 @@
             const lastActiveChatIdFromDjango = '{{ last_active_chat_id|default_if_none:"" }}';
 
             // Function to render a single message
-            function renderMessage(msg, container) {
+            function renderMessage(msg, container, showPlusIcon) {
                 const messageDiv = document.createElement('div');
-                messageDiv.classList.add('p-3', 'rounded-lg', 'break-words', 'mb-2');
-                messageDiv.setAttribute('data-message-id', msg.id); // Add message ID
+                messageDiv.classList.add('p-3', 'rounded-lg', 'break-words', 'mb-2', 'relative'); // Added relative for icon positioning
+                messageDiv.setAttribute('data-message-id', msg.id);
 
-                const roleSpan = document.createElement('span');
-                roleSpan.classList.add('font-semibold', 'text-xs', 'block', 'mb-1');
+                // Role Dropdown
+                const roleSelect = document.createElement('select');
+                roleSelect.classList.add('bg-gray-500', 'text-white', 'text-xs', 'font-semibold', 'rounded', 'p-1', 'mb-1', 'mr-2', 'focus:outline-none', 'focus:ring-1', 'focus:ring-blue-400');
+                const roles = ['User', 'Assistant', 'System'];
+                roles.forEach(r => {
+                    const option = document.createElement('option');
+                    option.value = r.toLowerCase();
+                    option.textContent = r;
+                    if (msg.role && msg.role.toLowerCase() === r.toLowerCase()) {
+                        option.selected = true;
+                    } else if (!msg.role && r.toLowerCase() === 'assistant') { // Default to assistant if role is missing
+                        option.selected = true;
+                    }
+                    roleSelect.appendChild(option);
+                });
 
                 const contentP = document.createElement('p');
                 contentP.classList.add('text-sm');
@@ -125,27 +138,73 @@
 
                 if (msg.role === 'user') {
                     messageDiv.classList.add('bg-indigo-500', 'ml-auto', 'text-white');
-                    roleSpan.textContent = 'User';
-                    roleSpan.classList.add('text-indigo-200');
-                } else { // assistant or other roles
+                    roleSelect.classList.remove('bg-gray-500', 'text-white');
+                    roleSelect.classList.add('bg-indigo-400', 'text-indigo-100');
+                } else { // assistant or system roles
                     messageDiv.classList.add('bg-gray-600', 'mr-auto', 'text-gray-100');
-                    roleSpan.textContent = 'Assistant'; // Or msg.role capitalized
-                    roleSpan.classList.add('text-gray-400');
                 }
 
-                messageDiv.appendChild(roleSpan);
+                messageDiv.appendChild(roleSelect);
                 messageDiv.appendChild(contentP);
+
+                // Footer for icons
+                const footerDiv = document.createElement('div');
+                footerDiv.classList.add('relative', 'h-5', 'mt-1'); // Height to contain icons, mt-1 for spacing
+
+                // Action Icons (Copy, Edit, Delete) - bottom-right
+                const iconsDiv = document.createElement('div');
+                iconsDiv.classList.add('absolute', 'bottom-0', 'right-0', 'flex', 'space-x-2');
+
+                const copyButton = document.createElement('button');
+                copyButton.innerHTML = '📄'; // Unicode for Copy
+                copyButton.title = 'Copy';
+                copyButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none');
+
+                const editButton = document.createElement('button');
+                editButton.innerHTML = '✏️'; // Unicode for Edit
+                editButton.title = 'Edit';
+                editButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none');
+
+                const deleteButton = document.createElement('button');
+                deleteButton.innerHTML = '🗑️'; // Unicode for Delete
+                deleteButton.title = 'Delete';
+                deleteButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none');
+
+                iconsDiv.appendChild(copyButton);
+                iconsDiv.appendChild(editButton);
+                iconsDiv.appendChild(deleteButton);
+                footerDiv.appendChild(iconsDiv);
+
+                // Plus Icon (bottom-center, conditional)
+                if (showPlusIcon) {
+                    const plusButtonDiv = document.createElement('div');
+                    plusButtonDiv.classList.add('absolute', 'bottom-0', 'left-1/2', '-translate-x-1/2');
+
+                    const plusButton = document.createElement('button');
+                    plusButton.innerHTML = '➕'; // Unicode for Plus
+                    plusButton.title = 'Add message below';
+                    plusButton.classList.add('bg-gray-500', 'text-white', 'rounded-full', 'w-5', 'h-5', 'flex', 'items-center', 'justify-center', 'text-xs', 'hover:bg-gray-400', 'focus:outline-none');
+                    plusButtonDiv.appendChild(plusButton);
+                    footerDiv.appendChild(plusButtonDiv);
+                }
+
+                messageDiv.appendChild(footerDiv);
                 container.appendChild(messageDiv);
             }
 
             // Function to render message tree
-            function renderMessageTree(messages, container) {
-                messages.forEach(msgNode => {
-                    renderMessage(msgNode, container);
-                    if (msgNode.children && msgNode.children.length > 0) {
-                        // Recursively render children, perhaps with indentation or different styling
-                        // For now, just append them linearly for simplicity, matching current behavior
-                        renderMessageTree(msgNode.children, container);
+            function renderMessageTree(nodes, container) {
+                nodes.forEach((node, index) => {
+                    let showPlus = false;
+                    // Show plus if it has children OR if it's not the last direct sibling
+                    if ((node.children && node.children.length > 0) || index < nodes.length - 1) {
+                        showPlus = true;
+                    }
+                    renderMessage(node, container, showPlus);
+
+                    if (node.children && node.children.length > 0) {
+                        // Render children directly into the main container without extra div or indentation classes
+                        renderMessageTree(node.children, container);
                     }
                 });
             }
@@ -183,7 +242,7 @@
                             chatModelTempEl.textContent = data.temperature || 'N/A';
                             // chatSystemPromptEl.textContent = data.system_prompt || 'No system prompt set.';
                             
-                            chatMessagesContainerEl.innerHTML = ''; 
+                            chatMessagesContainerEl.innerHTML = ''; // Clear previous messages
                             if (data.messages && data.messages.length > 0) {
                                 renderMessageTree(data.messages, chatMessagesContainerEl);
                             } else {
@@ -277,7 +336,8 @@
                     .then(data => {
                         if (data.status === 'success' && data.message) {
                             // Append the new message to the UI
-                            renderMessage(data.message, chatMessagesContainerEl);
+                            // A newly added message is last and has no children yet, so showPlusIcon is false.
+                            renderMessage(data.message, chatMessagesContainerEl, false);
                             chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
                             messageInputTextarea.value = ''; // Clear textarea
                         } else {
