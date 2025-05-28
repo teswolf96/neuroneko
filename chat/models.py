@@ -41,6 +41,7 @@ class AIModel(models.Model):
 class Folder(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='folders', help_text="The user who owns this folder", null=True, blank=True)
     name = models.CharField(max_length=255, help_text="Name of the folder")
+    is_open = models.BooleanField(default=True, help_text="Indicates if the folder is open in the UI by default")
 
     def __str__(self):
         return f"{self.name} ({self.user.username})"

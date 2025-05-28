@@ -35,4 +35,5 @@ urlpatterns = [
     path('api/folder/create/', views.create_folder_api, name='create_folder_api'),
     path('api/folder/rename/', views.rename_folder_api, name='rename_folder_api'),
     path('api/folder/delete/', views.delete_folder_api, name='delete_folder_api'),
+    path('api/folder/<int:folder_id>/toggle_open/', views.toggle_folder_open_api, name='toggle_folder_open_api'),
 ]

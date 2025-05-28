@@ -41,10 +41,10 @@
                 <div class="ml-4"> <!-- Indent folder contents slightly more -->
                     {% for item in folder_structure %}
                         {% if item.name != "Other Chats" %}
-                            <details class="group mt-2 folder-item-container"> <!-- Wrapper for each folder, now a details element -->
+                            <details class="group mt-2 folder-item-container" data-folder-id="{{ item.id }}" {% if item.is_open %}open{% endif %}> <!-- Wrapper for each folder, now a details element -->
                                 <summary class="text-sm font-semibold text-gray-300 mb-1 px-2 cursor-pointer list-none flex items-center justify-between">
                                     <span class="folder-name-display flex-grow unselectable"><!-- <span class="group-open:rotate-90 inline-block mr-1 transition-transform duration-150 transform">▶</span>--> {{ item.name }}</span>
-                                    <div class="folder-actions flex items-center space-x-1 ml-2 hidden" data-folder-name="{{ item.name|escapejs }}">
+                                    <div class="folder-actions flex items-center space-x-1 ml-2 hidden" data-folder-name="{{ item.name|escapejs }}" data-folder-id="{{ item.id }}">
                                         <button class="create-chat-in-folder-button text-gray-400 hover:text-white text-xs focus:outline-none" title="New Chat in Folder">➕</button>
                                         <button class="rename-folder-button text-gray-400 hover:text-white text-xs focus:outline-none" title="Rename Folder">✏️</button>
                                         <button class="delete-folder-button text-gray-400 hover:text-white text-xs focus:outline-none" title="Delete Folder">🗑️</button>
@@ -1160,6 +1160,46 @@
                             alert('Error deleting chat: ' + error.message);
                         });
                     }
+                });
+            });
+
+            // Folder open/close state persistence
+            document.querySelectorAll('details.folder-item-container').forEach(detailsElement => {
+                detailsElement.addEventListener('toggle', function(event) {
+                    const folderId = this.dataset.folderId;
+                    if (!folderId) {
+                        console.error('Folder ID not found for toggling state.');
+                        return;
+                    }
+                    // The 'open' attribute is already changed by the browser at this point.
+                    // We just need to inform the backend.
+                    fetch(`/api/folder/${folderId}/toggle_open/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        // No body needed, the backend toggles based on current state
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.status === 'success') {
+                            console.log(`Folder ${folderId} state updated to: ${data.is_open ? 'open' : 'closed'}`);
+                        } else {
+                            console.error('Error updating folder state:', data.error);
+                            // Optionally, revert the toggle visually if the backend update fails,
+                            // though this might be jarring for the user.
+                            // For now, log the error.
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Network error updating folder state:', error);
+                    });
                 });
             });
         });

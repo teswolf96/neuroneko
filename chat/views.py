@@ -25,7 +25,12 @@ def index_view(request):
 
     for folder in folders:
         folder_chats = list(folder.chats_in_folder.all().order_by('-created_at')) # Order chats in folder
-        folder_structure.append({'name': folder.name, 'chats': folder_chats})
+        folder_structure.append({
+            'id': folder.id,  # Add folder ID
+            'name': folder.name,
+            'is_open': folder.is_open,  # Add is_open status
+            'chats': folder_chats
+        })
         for chat in folder_chats:
             chats_in_folders_ids.add(chat.id)
 
@@ -634,3 +639,14 @@ def delete_chat_api(request, chat_id):
         
     chat.delete() # Messages will be cascade deleted
     return JsonResponse({'status': 'success', 'message': 'Chat deleted successfully.'})
+
+@login_required
+@require_POST
+def toggle_folder_open_api(request, folder_id):
+    folder = get_object_or_404(Folder, id=folder_id, user=request.user)
+    try:
+        folder.is_open = not folder.is_open
+        folder.save(update_fields=['is_open'])
+        return JsonResponse({'status': 'success', 'message': 'Folder state updated.', 'is_open': folder.is_open})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'error': str(e)}, status=500)
