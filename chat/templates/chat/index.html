@@ -6,6 +6,7 @@
     <meta charset="UTF-8">
     <title>{% block title %}Chat Interface{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     {% block extra_head %}{% endblock %}
 </head>
 <body class="bg-gray-900 text-white h-screen flex">
@@ -169,9 +170,9 @@
                     });
                 });
 
-                const contentP = document.createElement('p');
-                contentP.classList.add('text-sm');
-                contentP.textContent = msg.content;
+                const contentP = document.createElement('div'); // Changed to div to better accommodate block elements from Markdown
+                contentP.classList.add('text-sm', 'prose', 'prose-sm', 'prose-invert', 'max-w-none', 'whitespace-pre-line'); // Added prose classes and whitespace-pre-line
+                contentP.innerHTML = marked.parse(msg.content || '', { breaks: false, gfm: true }); // Use marked.parse, ensure gfm is on, breaks off.
 
                 // Alternating grey backgrounds
                 if (messageIndex % 2 === 0) {
@@ -206,7 +207,8 @@
                 copyButton.title = 'Copy';
                 copyButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none');
                 copyButton.addEventListener('click', function() {
-                    const textToCopy = contentP.textContent;
+                    // For Markdown, copying innerText might be more appropriate to get a plain text version
+                    const textToCopy = contentP.innerText; 
                     navigator.clipboard.writeText(textToCopy)
                         .then(() => {
                             // Optional: Provide feedback to the user, e.g., change icon or show a tooltip
@@ -246,9 +248,18 @@
                     editingInterfaceDiv.classList.add('editing-interface', 'my-2'); // Added my-2 for spacing
 
                     const textarea = document.createElement('textarea');
-                    textarea.value = contentP.textContent;
+                    // When editing, we should edit the raw Markdown source, not the rendered HTML's textContent
+                    textarea.value = msg.content; // Assuming msg.content holds the raw markdown
                     textarea.classList.add('w-full', 'bg-gray-800', 'p-2', 'rounded', 'text-white', 'border', 'border-gray-600', 'focus:border-blue-500', 'focus:ring-1', 'focus:ring-blue-500');
-                    textarea.rows = 3;
+                    textarea.rows = 3; // Initial rows, can grow
+                    // Add a style to allow textarea to grow
+                    textarea.style.minHeight = '6rem'; // equivalent to rows="3" roughly
+                    textarea.style.resize = 'vertical'; // Allow vertical resize by user if browser supports
+                    textarea.addEventListener('input', function () {
+                        this.style.height = 'auto';
+                        this.style.height = (this.scrollHeight) + 'px';
+                    });
+
 
                     const editControlsDiv = document.createElement('div');
                     editControlsDiv.classList.add('flex', 'space-x-2', 'mt-2');
@@ -273,7 +284,9 @@
                             return response.json();
                         })
                         .then(data => {
-                            contentP.textContent = newText;
+                            // Update the raw content store (msg.content) if possible, or re-fetch for consistency
+                            msg.content = newText; // Update local msg object
+                            contentP.innerHTML = marked.parse(newText, { breaks: false, gfm: true }); // Re-render Markdown, ensure gfm is on, breaks off.
                             // Restore UI
                             editingInterfaceDiv.remove();
                             contentP.style.display = '';
