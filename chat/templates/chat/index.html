@@ -673,7 +673,9 @@
                     });
                 });
 
-                iconsDiv.appendChild(addSiblingButton); // Add new button first
+                if (msg.id !== chatRootMessageId) {
+                    iconsDiv.appendChild(addSiblingButton); // Add new button first
+                }
                 iconsDiv.appendChild(copyButton);
                 iconsDiv.appendChild(editButton);
 
