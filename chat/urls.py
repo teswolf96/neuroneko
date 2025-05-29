@@ -46,6 +46,9 @@ urlpatterns = [
     # API endpoint for saved prompts
     path('api/prompts/', views.get_saved_prompts_api, name='get_saved_prompts_api'),
 
+    # API endpoint for saved ideas
+    path('api/ideas/', views.get_saved_ideas_api, name='get_saved_ideas_api'),
+
     # API endpoints for folder management
     path('api/folder/create/', views.create_folder_api, name='create_folder_api'),
     path('api/folder/rename/', views.rename_folder_api, name='rename_folder_api'),

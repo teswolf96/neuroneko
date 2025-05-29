@@ -10,8 +10,8 @@ import json
 from django.contrib import messages
 from asgiref.sync import async_to_sync # Added for sync view calling async code
 
-from .models import Chat, Message, Folder, UserSettings, AIEndpoint, AIModel, SavedPrompt, Idea # Added Idea
-from .forms import UserSettingsForm, AIEndpointForm, AIModelForm, SavedPromptForm, IdeaForm # Added IdeaForm
+from .models import Chat, Message, Folder, UserSettings, AIEndpoint, AIModel, SavedPrompt, Idea
+from .forms import UserSettingsForm, AIEndpointForm, AIModelForm, SavedPromptForm, IdeaForm
 from .api_client import test_anthropic_endpoint, get_static_completion # New import
 
 
@@ -19,6 +19,11 @@ from .api_client import test_anthropic_endpoint, get_static_completion # New imp
 def get_saved_prompts_api(request):
     prompts = SavedPrompt.objects.filter(user=request.user).values('name', 'prompt_text')
     return JsonResponse(list(prompts), safe=False)
+
+@login_required
+def get_saved_ideas_api(request):
+    ideas = Idea.objects.filter(user=request.user).values('name', 'idea_text')
+    return JsonResponse(list(ideas), safe=False)
 
 @login_required
 def index_view(request):

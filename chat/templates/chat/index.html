@@ -65,15 +65,18 @@
             color: white;
             border: 1px solid #718096; /* gray-500 */
         }
-        #prompt-list-container .prompt-item {
+        #prompt-list-container .prompt-item,
+        #idea-list-container .prompt-item { /* Apply to both idea and prompt items */
             padding: 8px;
             cursor: pointer;
             border-bottom: 1px solid #4a5568; /* gray-700 */
         }
-        #prompt-list-container .prompt-item:hover {
+        #prompt-list-container .prompt-item:hover,
+        #idea-list-container .prompt-item:hover { /* Apply to both idea and prompt items */
             background-color: #4a5568; /* gray-700 */
         }
-        #prompt-list-container .prompt-item:last-child {
+        #prompt-list-container .prompt-item:last-child,
+        #idea-list-container .prompt-item:last-child { /* Apply to both idea and prompt items */
             border-bottom: none;
         }
     </style>
@@ -219,7 +222,7 @@
                     <button class="bg-gray-600 px-4 py-2 rounded w-full">Save</button>
                     <div class="flex space-x-1 mt-1">
                         <button id="open-prompt-modal-button" class="bg-gray-600 px-3 py-1 rounded text-xs flex-grow">Prompt</button>
-                        <button class="bg-gray-600 px-3 py-1 rounded text-xs flex-grow">Idea</button>
+                        <button id="open-idea-modal-button" class="bg-gray-600 px-3 py-1 rounded text-xs flex-grow">Idea</button>
                     </div>
                 </div>
             </div>
@@ -242,6 +245,18 @@
             <input type="text" id="prompt-filter-input" class="w-full p-2 mb-4 rounded" placeholder="Filter prompts...">
             <div id="prompt-list-container" class="max-h-60 overflow-y-auto">
                 <!-- Prompts will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Idea Modal HTML (Copied and modified from Prompt Modal) -->
+    <div id="idea-modal" class="prompt-modal"> <!-- Reused prompt-modal class for basic styling, but ID is idea-modal -->
+        <div class="prompt-modal-content"> <!-- Reused prompt-modal-content class -->
+            <span id="idea-modal-close-button" class="prompt-modal-close-button">&times;</span> <!-- ID changed -->
+            <h2 class="text-xl font-semibold mb-4">Select an Idea</h2> <!-- Title changed -->
+            <input type="text" id="idea-filter-input" class="w-full p-2 mb-4 rounded" placeholder="Filter ideas..."> <!-- ID and placeholder changed -->
+            <div id="idea-list-container" class="max-h-60 overflow-y-auto">
+                <!-- Ideas will be loaded here -->
             </div>
         </div>
     </div>
@@ -269,6 +284,15 @@
             const promptListContainer = document.getElementById('prompt-list-container');
             let allPrompts = [];
             let activePromptTargetTextarea = null; // Initialize to null or to messageInputTextarea
+
+            // Idea Modal Elements
+            const ideaModal = document.getElementById('idea-modal');
+            const openIdeaModalButton = document.getElementById('open-idea-modal-button');
+            const closeIdeaModalButton = document.getElementById('idea-modal-close-button');
+            const ideaFilterInput = document.getElementById('idea-filter-input');
+            const ideaListContainer = document.getElementById('idea-list-container');
+            let allIdeas = [];
+            // activePromptTargetTextarea is reused for ideas as well
 
 
             let currentActiveChatLi = null;
@@ -2433,6 +2457,97 @@
                 });
             }
             // --- End of Prompt Modal JavaScript ---
+
+            // --- Idea Modal JavaScript (Copied and modified from Prompt Modal JS) ---
+            if (openIdeaModalButton) {
+                openIdeaModalButton.addEventListener('click', function() {
+                    activePromptTargetTextarea = messageInputTextarea; // Set target to main input
+                    ideaModal.style.display = 'block';
+                    if (allIdeas.length === 0) { // Fetch only if not already fetched
+                        fetchIdeas();
+                    } else {
+                        renderIdeas(allIdeas); // Re-render if already fetched
+                    }
+                    ideaFilterInput.value = ''; // Clear filter on open
+                    ideaFilterInput.focus();
+                });
+            }
+
+            if (closeIdeaModalButton) {
+                closeIdeaModalButton.addEventListener('click', function() {
+                    ideaModal.style.display = 'none';
+                });
+            }
+
+            // Close idea modal if user clicks outside of it
+            window.addEventListener('click', function(event) {
+                if (event.target == ideaModal) { // Check for ideaModal
+                    ideaModal.style.display = 'none';
+                }
+            });
+
+            function fetchIdeas() {
+                fetch('/api/ideas/') // Changed URL to fetch ideas
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        allIdeas = data; // Store in allIdeas
+                        renderIdeas(allIdeas); // Call renderIdeas
+                    })
+                    .catch(error => {
+                        console.error('Error fetching ideas:', error);
+                        ideaListContainer.innerHTML = '<p class="text-red-400">Error loading ideas.</p>'; // Update container
+                    });
+            }
+
+            function renderIdeas(ideasToDisplay) {
+                ideaListContainer.innerHTML = ''; // Clear current list in ideaListContainer
+                if (ideasToDisplay.length === 0) {
+                    ideaListContainer.innerHTML = '<p class="text-gray-400">No ideas found.</p>';
+                    return;
+                }
+                ideasToDisplay.forEach(idea => { // Iterate ideas
+                    const ideaDiv = document.createElement('div');
+                    ideaDiv.classList.add('prompt-item'); // Can reuse 'prompt-item' class for styling if desired
+                    ideaDiv.textContent = idea.name; // Display idea name
+                    ideaDiv.dataset.ideaText = idea.idea_text; // Store idea_text in dataset
+                    ideaDiv.addEventListener('click', function() {
+                        const textarea = activePromptTargetTextarea || messageInputTextarea; // Ensure textarea is defined
+                        const ideaTextToInsert = this.dataset.ideaText;
+                        const startPos = textarea.selectionStart;
+                        const endPos = textarea.selectionEnd;
+                        
+                        textarea.value = textarea.value.substring(0, startPos) + 
+                                         ideaTextToInsert + 
+                                         textarea.value.substring(endPos, textarea.value.length);
+                        
+                        // Move cursor to after the inserted text
+                        const newCursorPos = startPos + ideaTextToInsert.length;
+                        textarea.selectionStart = textarea.selectionEnd = newCursorPos;
+                        
+                        // Dispatch an input event to trigger any auto-resize or other listeners
+                        const inputEvent = new Event('input', { bubbles: true, cancelable: true });
+                        textarea.dispatchEvent(inputEvent);
+                        textarea.focus();
+                        
+                        ideaModal.style.display = 'none'; // Hide ideaModal
+                    });
+                    ideaListContainer.appendChild(ideaDiv);
+                });
+            }
+
+            if (ideaFilterInput) {
+                ideaFilterInput.addEventListener('input', function() {
+                    const filterText = this.value.toLowerCase();
+                    const filteredIdeas = allIdeas.filter(i => i.name.toLowerCase().includes(filterText)); // Filter allIdeas
+                    renderIdeas(filteredIdeas); // Call renderIdeas
+                });
+            }
+            // --- End of Idea Modal JavaScript ---
 
         });
     </script>
