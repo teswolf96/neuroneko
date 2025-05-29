@@ -191,10 +191,11 @@
 
             let currentActiveChatLi = null;
             let currentChatId = null; // To store the ID of the currently active chat
+            let currentChatRootMessageId = null; // To store the root message ID of the active chat
             const lastActiveChatIdFromDjango = '{{ last_active_chat_id|default_if_none:"" }}';
 
             // Function to render a single message
-            function renderMessage(msg, container, showPlusIcon, messageIndex) {
+            function renderMessage(msg, container, showPlusIcon, messageIndex, chatRootMessageId) { // Added chatRootMessageId
                 const messageDiv = document.createElement('div');
                 messageDiv.classList.add('p-3', 'rounded-lg', 'break-words', 'mb-2', 'relative', 'text-gray-100'); // Added relative for icon positioning and default text color
                 messageDiv.setAttribute('data-message-id', msg.id);
@@ -510,7 +511,57 @@
                 iconsDiv.appendChild(addSiblingButton); // Add new button first
                 iconsDiv.appendChild(copyButton);
                 iconsDiv.appendChild(editButton);
-                iconsDiv.appendChild(deleteButton);
+
+                // Conditionally add the "Clean Remove" button if not the root message
+                if (msg.id !== chatRootMessageId) {
+                    const cleanRemoveButton = document.createElement('button');
+                    cleanRemoveButton.innerHTML = '✂️'; // Unicode for Scissors, or choose another
+                    cleanRemoveButton.title = 'Remove (keep children)';
+                    cleanRemoveButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none');
+                    cleanRemoveButton.addEventListener('click', function() {
+                        const messageIdToCleanRemove = messageDiv.dataset.messageId;
+                        if (!messageIdToCleanRemove || !currentChatId) {
+                            alert('Cannot clean remove message: ID or Chat context missing.');
+                            return;
+                        }
+                        if (window.confirm('Are you sure you want to remove this message and reparent its children? This action cannot be undone.')) {
+                            fetch(`/api/chat/${currentChatId}/message/${messageIdToCleanRemove}/clean_remove/`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-CSRFToken': '{{ csrf_token }}'
+                                },
+                            })
+                            .then(response => {
+                                if (!response.ok) {
+                                    return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                                }
+                                return response.json();
+                            })
+                            .then(data => {
+                                console.log('Message clean remove successful:', data.message);
+                                // Re-fetch chat details to update UI
+                                const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                                if (activeChatListItem) {
+                                    activeChatListItem.click();
+                                } else if (currentChatId) {
+                                    const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                                    if (targetChatLink) {
+                                        const targetChatItem = targetChatLink.closest('.chat-item');
+                                        if (targetChatItem) targetChatItem.click();
+                                    }
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error clean removing message:', error);
+                                alert('Error clean removing message: ' + error.message);
+                            });
+                        }
+                    });
+                    iconsDiv.appendChild(cleanRemoveButton);
+                }
+
+                iconsDiv.appendChild(deleteButton); // Original delete button
                 footerDiv.appendChild(iconsDiv);
 
                 // Plus Icon (bottom-center, conditional)
@@ -650,12 +701,12 @@
             }
 
             // Function to render message tree
-            function renderMessageTree(nodesToProcess, container, counter) {
+            function renderMessageTree(nodesToProcess, container, counter, chatRootMessageId) { // Added chatRootMessageId
                 nodesToProcess.forEach((currentNode, index) => {
                     // Plus icon is now shown for every message.
                     const showPlus = true;
 
-                    renderMessage(currentNode, container, showPlus, counter.value); // Render the currentNode
+                    renderMessage(currentNode, container, showPlus, counter.value, chatRootMessageId); // Pass chatRootMessageId
                     counter.value++;
 
                     if (currentNode.children && currentNode.children.length > 0) {
@@ -678,7 +729,7 @@
                         }
 
                         if (childrenForNextLevel.length > 0) {
-                            renderMessageTree(childrenForNextLevel, container, counter);
+                            renderMessageTree(childrenForNextLevel, container, counter, chatRootMessageId); // Pass chatRootMessageId
                         }
                     }
                 });
@@ -727,16 +778,16 @@
                             } else {
                                 // If no specific model ID, try to select the first option or handle as needed
                                 if (chatModelSelectEl.options.length > 0) {
-                                    chatModelSelectEl.selectedIndex = 0; 
+                                    chatModelSelectEl.selectedIndex = 0;
                                 }
                             }
                             chatModelTempEl.textContent = data.temperature || 'N/A';
-                            // chatSystemPromptEl.textContent = data.system_prompt || 'No system prompt set.';
+                            currentChatRootMessageId = data.root_message_id; // Store root message ID
                             
                             chatMessagesContainerEl.innerHTML = ''; // Clear previous messages
                             if (data.messages && data.messages.length > 0) {
                                 let messageCounter = { value: 0 };
-                                renderMessageTree(data.messages, chatMessagesContainerEl, messageCounter);
+                                renderMessageTree(data.messages, chatMessagesContainerEl, messageCounter, currentChatRootMessageId); // Pass currentChatRootMessageId
                             } else {
                                 chatMessagesContainerEl.innerHTML = '<p class="text-gray-500 p-4">No messages in this chat yet.</p>';
                             }

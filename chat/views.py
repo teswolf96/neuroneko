@@ -443,6 +443,7 @@ def get_chat_details_api(request, chat_id):
     ai_model_name = chat.ai_model_used.name if chat.ai_model_used else (user_settings.default_model.name if user_settings.default_model else "N/A")
     ai_model_used_id = chat.ai_model_used.id if chat.ai_model_used else (user_settings.default_model.id if user_settings.default_model else None)
     temperature = chat.ai_temperatue # This should be chat.ai_temperature (typo in model)
+    root_message_id = chat.root_message.id if chat.root_message else None
 
     return JsonResponse({
         'id': chat.id,
@@ -451,7 +452,8 @@ def get_chat_details_api(request, chat_id):
         'ai_model_name': ai_model_name,
         'ai_model_used_id': ai_model_used_id,
         'temperature': temperature,
-        'system_prompt': user_settings.system_prompt # This should probably be chat-specific if we add it to Chat model
+        'system_prompt': user_settings.system_prompt, # This should probably be chat-specific if we add it to Chat model
+        'root_message_id': root_message_id
     })
 
 
@@ -558,6 +560,52 @@ def delete_message_api(request, chat_id, message_id):
         message_to_delete.delete()
 
     return JsonResponse({'status': 'success', 'message': 'Message and its replies deleted successfully.'})
+
+
+@login_required
+@require_POST
+@transaction.atomic
+def clean_remove_message_api(request, chat_id, message_id):
+    message_to_remove = get_object_or_404(Message, id=message_id, chat_id=chat_id, chat__user=request.user)
+    chat_instance = message_to_remove.chat
+
+    # Critical check: Do not allow "clean remove" for the root message of the chat.
+    if chat_instance.root_message == message_to_remove:
+        return JsonResponse({'status': 'error', 'error': 'Cannot clean remove the root message of a chat.'}, status=400)
+
+    parent_of_message_to_remove = message_to_remove.parent
+    children_of_message_to_remove = list(message_to_remove.children.all()) # Get children before modifying
+
+    # Reparent children
+    for child in children_of_message_to_remove:
+        child.parent = parent_of_message_to_remove
+        child.save(update_fields=['parent'])
+
+    # Handle active_child status for the parent of the message being removed
+    if parent_of_message_to_remove:
+        if parent_of_message_to_remove.active_child == message_to_remove:
+            # If the removed message was active, try to set one of its former children as active for the grandparent
+            # Or, if no children were reparented to the grandparent from this node, set active_child to None or another existing child.
+            if children_of_message_to_remove:
+                # Make the first reparented child active for the grandparent
+                parent_of_message_to_remove.active_child = children_of_message_to_remove[0]
+            else:
+                # If message_to_remove had no children, try to find another sibling to make active
+                other_siblings = parent_of_message_to_remove.children.exclude(id=message_to_remove.id).order_by('-created_at')
+                if other_siblings.exists():
+                    parent_of_message_to_remove.active_child = other_siblings.first()
+                else:
+                    parent_of_message_to_remove.active_child = None
+            parent_of_message_to_remove.save(update_fields=['active_child'])
+
+    # If the message_to_remove itself had an active_child, and that child was reparented,
+    # the new parent (parent_of_message_to_remove) might need its active_child pointer updated
+    # if it wasn't already handled by the logic above.
+    # This scenario is covered if children_of_message_to_remove[0] was the active_child of message_to_remove.
+
+    message_to_remove.delete()
+
+    return JsonResponse({'status': 'success', 'message': 'Message cleanly removed and children reparented.'})
 
 
 @login_required
