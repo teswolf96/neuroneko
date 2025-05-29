@@ -560,6 +560,17 @@
                     generateButtonInEditMenu.textContent = 'Generate';
                     generateButtonInEditMenu.classList.add('bg-green-500', 'hover:bg-green-600', 'text-white', 'px-3', 'py-1', 'rounded', 'text-sm');
                     
+
+                    const cancelEditButton = document.createElement('button');
+                    cancelEditButton.textContent = 'Cancel';
+                    cancelEditButton.classList.add('bg-red-500', 'hover:bg-red-600', 'text-white', 'px-3', 'py-1', 'rounded', 'text-sm');
+                    cancelEditButton.addEventListener('click', function() {
+                        // Restore UI
+                        editingInterfaceDiv.remove();
+                        contentP.style.display = '';
+                        iconsDiv.style.display = 'flex'; // Assuming it was flex
+                    });
+
                     generateButtonInEditMenu.addEventListener('click', function() {
                         const editedMessageId = messageId; // from outer scope of editButton listener
                         const newText = textarea.value; // Content from the textarea in edit UI
@@ -693,6 +704,7 @@
 
                     editControlsDiv.appendChild(saveEditButton);
                     editControlsDiv.appendChild(generateButtonInEditMenu);
+                    editControlsDiv.appendChild(cancelEditButton); // Add the cancel button
 
                     editingInterfaceDiv.appendChild(textarea);
                     editingInterfaceDiv.appendChild(editControlsDiv);
