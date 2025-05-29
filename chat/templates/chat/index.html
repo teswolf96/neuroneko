@@ -6,7 +6,6 @@
     <meta charset="UTF-8">
     <title>{% block title %}Best GPT Interface{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         .unselectable {
             -webkit-user-select: none; /* Safari */
@@ -412,14 +411,14 @@
                                 const currentRawContent = currentAssistantMessageContentEl.dataset.rawContent || "";
                                 const newRawContent = currentRawContent + data.text_delta;
                                 currentAssistantMessageContentEl.dataset.rawContent = newRawContent;
-                                currentAssistantMessageContentEl.innerHTML = marked.parse(newRawContent, { breaks: false, gfm: true });
+                                currentAssistantMessageContentEl.textContent = newRawContent;
                                 chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
                             }
                             break;
                         case 'stream_end':
                             if (data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
                                 currentAssistantMessageContentEl.dataset.rawContent = data.full_content; // Store final raw content
-                                currentAssistantMessageContentEl.innerHTML = marked.parse(data.full_content, { breaks: false, gfm: true });
+                                currentAssistantMessageContentEl.textContent = data.full_content;
                             }
                             // UI reset is handled by unlock_sidebar which should follow
                             break;
@@ -535,7 +534,7 @@
                 const contentP = document.createElement('div'); // Changed to div to better accommodate block elements from Markdown
                 contentP.classList.add('text-sm', 'prose', 'prose-sm', 'prose-invert', 'max-w-none', 'whitespace-pre-line'); // Added prose classes and whitespace-pre-line
                 const rawContent = msg.content || ''; // Ensure rawContent is defined
-                contentP.innerHTML = marked.parse(rawContent, { breaks: false, gfm: true }); // Use marked.parse, ensure gfm is on, breaks off.
+                contentP.textContent = rawContent; // Use textContent for plain text
                 contentP.dataset.rawContent = rawContent; // Store raw content for easier updates
 
                 // Alternating grey backgrounds
@@ -650,7 +649,7 @@
                         .then(data => {
                             // Update the raw content store (msg.content) if possible, or re-fetch for consistency
                             msg.content = newText; // Update local msg object
-                            contentP.innerHTML = marked.parse(newText, { breaks: false, gfm: true }); // Re-render Markdown, ensure gfm is on, breaks off.
+                            contentP.textContent = newText; // Use textContent for plain text
                             // Restore UI
                             editingInterfaceDiv.remove();
                             contentP.style.display = '';
@@ -714,7 +713,7 @@
                         .then(saveData => {
                             // Content saved successfully
                             msg.content = newText; // Update local msg object's content
-                            contentP.innerHTML = marked.parse(newText, { breaks: false, gfm: true });
+                            contentP.textContent = newText; // Use textContent for plain text
                             contentP.dataset.rawContent = newText;
 
                             // Restore UI from editing mode
