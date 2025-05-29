@@ -606,15 +606,8 @@
             // Function to render message tree
             function renderMessageTree(nodesToProcess, container, counter) {
                 nodesToProcess.forEach((currentNode, index) => {
-                    // Determine if the plus icon should be shown for adding a message after this one
-                    let showPlus = false;
-                    // The original logic for 'showPlus' is about adding a message *below* the current one,
-                    // or as a sibling if it's not the last.
-                    // This seems reasonable to keep as is, as it relates to the *potential* to add,
-                    // not the display of existing children.
-                    if ((currentNode.children && currentNode.children.length > 0) || index < nodesToProcess.length - 1) {
-                        showPlus = true;
-                    }
+                    // Plus icon is now shown for every message.
+                    const showPlus = true;
 
                     renderMessage(currentNode, container, showPlus, counter.value); // Render the currentNode
                     counter.value++;
