@@ -821,7 +821,24 @@
                     });
                     editControlsDiv.appendChild(promptEditButton); // Add before cancel
 
-                    editControlsDiv.appendChild(cancelEditButton); // Add the cancel button (now to the right of Prompt)
+                    // New "Idea" button for the edit interface
+                    const ideaEditButton = document.createElement('button');
+                    ideaEditButton.textContent = 'Idea';
+                    ideaEditButton.classList.add('bg-purple-500', 'hover:bg-purple-600', 'text-white', 'px-3', 'py-1', 'rounded', 'text-sm');
+                    ideaEditButton.addEventListener('click', function() {
+                        activePromptTargetTextarea = textarea; // Target this specific textarea
+                        ideaModal.style.display = 'block';
+                        if (allIdeas.length === 0) {
+                            fetchIdeas();
+                        } else {
+                            renderIdeas(allIdeas);
+                        }
+                        ideaFilterInput.value = '';
+                        ideaFilterInput.focus();
+                    });
+                    editControlsDiv.appendChild(ideaEditButton); // Add next to Prompt
+
+                    editControlsDiv.appendChild(cancelEditButton); // Add the cancel button (now to the right of Prompt and Idea)
 
 
                     editingInterfaceDiv.appendChild(textarea);
