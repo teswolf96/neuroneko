@@ -904,3 +904,76 @@ def regenerate_chat_title_api(request, chat_id): # Changed to sync def
         # Log the exception e for debugging
         print(f"Error during AI call for title regeneration: {e}")
         return JsonResponse({'status': 'error', 'error': f'Failed to generate title due to an API error: {str(e)}'}, status=500)
+
+
+@login_required
+@require_POST
+@transaction.atomic
+def clone_chat_api(request, chat_id):
+    original_chat = get_object_or_404(Chat, id=chat_id, user=request.user)
+    
+    try:
+        data = json.loads(request.body)
+        new_chat_name = data.get('new_chat_name', '').strip()
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'error': 'Invalid JSON.'}, status=400)
+
+    if not new_chat_name:
+        return JsonResponse({'status': 'error', 'error': 'New chat name cannot be empty.'}, status=400)
+
+    # Create the new chat object
+    new_chat = Chat.objects.create(
+        user=request.user,
+        title=new_chat_name,
+        folder=original_chat.folder,
+        ai_model_used=original_chat.ai_model_used,
+        ai_temperatue=original_chat.ai_temperatue, # Note: typo in model field name 'ai_temperatue'
+        # root_message will be set after cloning messages
+    )
+
+    # Helper function to recursively clone messages
+    def _clone_message_recursive(original_message, new_chat_instance, new_parent_message=None):
+        # Create the new message, copying content and role
+        cloned_message = Message.objects.create(
+            chat=new_chat_instance,
+            message=original_message.message,
+            role=original_message.role,
+            parent=new_parent_message,
+            # created_at will be auto-set. If specific timing is needed, this would be more complex.
+        )
+
+        # Recursively clone children and keep track of the mapping from old child ID to new child object
+        cloned_children_map = {}
+        for original_child in original_message.children.all().order_by('created_at'):
+            cloned_child_instance = _clone_message_recursive(original_child, new_chat_instance, cloned_message)
+            cloned_children_map[original_child.id] = cloned_child_instance
+        
+        # Set the active_child for the newly cloned message, if the original had one
+        if original_message.active_child_id:
+            new_active_child_instance = cloned_children_map.get(original_message.active_child_id)
+            if new_active_child_instance:
+                cloned_message.active_child = new_active_child_instance
+                cloned_message.save(update_fields=['active_child'])
+        
+        return cloned_message
+
+    # Start cloning from the original chat's root message
+    if original_chat.root_message:
+        new_root_message = _clone_message_recursive(original_chat.root_message, new_chat)
+        new_chat.root_message = new_root_message
+        # new_chat.save(update_fields=['root_message']) # Already saved by create, update root_message
+    # else: new_chat.root_message remains None, which is fine.
+    
+    new_chat.save() # Save again to ensure root_message is persisted if set.
+
+    # Update user's last active chat to the newly cloned one
+    user_settings, _ = UserSettings.objects.get_or_create(user=request.user)
+    user_settings.last_active_chat = new_chat
+    user_settings.save(update_fields=['last_active_chat'])
+
+    return JsonResponse({
+        'status': 'success',
+        'message': 'Chat cloned successfully.',
+        'new_chat_id': new_chat.id,
+        'new_chat_title': new_chat.title
+    })

@@ -175,7 +175,7 @@
             <div class="flex space-x-2 mt-4">
                 <button id="regen-title-button" class="bg-gray-700 px-3 py-1 rounded">Regen Title</button>
                 <button class="bg-gray-700 px-3 py-1 rounded">Download Chat</button>
-                <button class="bg-gray-700 px-3 py-1 rounded">Clone Chat</button>
+                <button id="clone-chat-button" class="bg-gray-700 px-3 py-1 rounded">Clone Chat</button>
                 <button class="bg-gray-700 px-3 py-1 rounded">Continue</button>
             </div>
         </div> <!-- Closing div for input area -->
@@ -1946,6 +1946,88 @@
 
             // Regenerate Title button functionality
             const regenTitleButton = document.getElementById('regen-title-button');
+
+            // Clone Chat button functionality
+            const cloneChatButton = document.getElementById('clone-chat-button');
+            if (cloneChatButton) {
+                cloneChatButton.addEventListener('click', function() {
+                    if (!currentChatId) {
+                        alert('Please select a chat to clone.');
+                        return;
+                    }
+                    // Use currentActiveChatLi which is already maintained
+                    const originalTitle = currentActiveChatLi ? currentActiveChatLi.dataset.chatFullTitle : null;
+
+                    if (!originalTitle) {
+                        // Fallback: try to find it if currentActiveChatLi is somehow not set but currentChatId is
+                        const activeChatItem = document.querySelector(`.chat-item[data-chat-id="${currentChatId}"]`);
+                        if (activeChatItem) {
+                             originalTitle = activeChatItem.dataset.chatFullTitle;
+                        }
+                        if (!originalTitle) {
+                            alert('Could not get current chat title to clone.');
+                            return;
+                        }
+                    }
+
+                    function generateNewChatName(currentTitle) {
+                        const match = currentTitle.match(/(.*?)(\s+(\d+))?$/);
+                        let baseName = currentTitle.trim(); // Default to trimmed current title
+                        let number = 0;
+
+                        if (match) {
+                            // match[1] is the part before the number, match[3] is the number
+                            let potentialBaseName = (match[1] || "").trim();
+                            
+                            if (match[3]) { // If there is a number
+                                number = parseInt(match[3], 10);
+                                if (potentialBaseName === "") { // Title was just " 123" or "123"
+                                    baseName = "Chat"; // Default base name if original was just a number
+                                } else {
+                                    baseName = potentialBaseName;
+                                }
+                            } else { // No number found, use the whole title as base
+                                baseName = currentTitle.trim();
+                                if (baseName === "") baseName = "Chat"; // Handle empty original title
+                            }
+                        } else { // No match at all (e.g., empty string, though trim should handle)
+                            baseName = "Chat"; // Default if title is problematic
+                        }
+                        return `${baseName} ${number + 1}`;
+                    }
+                    const newChatName = generateNewChatName(originalTitle);
+
+                    fetch(`/api/chat/${currentChatId}/clone/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({ new_chat_name: newChatName })
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(err => { 
+                                throw new Error(err.error || `HTTP error ${response.status}`);
+                            });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.status === 'success') {
+                            // The backend will set the new chat as last_active_chat.
+                            // Reloading the page will then pick it up.
+                            window.location.reload();
+                        } else {
+                            alert('Error cloning chat: ' + (data.error || 'Unknown server error.'));
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error cloning chat:', error);
+                        alert('Error cloning chat: ' + error.message);
+                    });
+                });
+            }
 
             // Helper functions for global UI lock/unlock during generation
             function setSiblingNavigationLock(isLocked) {
