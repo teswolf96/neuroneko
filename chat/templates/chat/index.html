@@ -169,7 +169,7 @@
             </div>
             <!-- The div that previously held Prompt and Idea buttons is removed by not including it here -->
             <div class="flex space-x-2 mt-4">
-                <button class="bg-gray-700 px-3 py-1 rounded">Regen Title</button>
+                <button id="regen-title-button" class="bg-gray-700 px-3 py-1 rounded">Regen Title</button>
                 <button class="bg-gray-700 px-3 py-1 rounded">Download Chat</button>
                 <button class="bg-gray-700 px-3 py-1 rounded">Clone Chat</button>
                 <button class="bg-gray-700 px-3 py-1 rounded">Continue</button>
@@ -1472,6 +1472,63 @@
                         console.error('Error updating chat model:', error);
                         alert('Error updating chat model: ' + error.message);
                         // Optionally, revert dropdown selection
+                    });
+                });
+            }
+
+            // Regenerate Title button functionality
+            const regenTitleButton = document.getElementById('regen-title-button');
+            if (regenTitleButton) {
+                regenTitleButton.addEventListener('click', function() {
+                    if (!currentChatId) {
+                        alert('Please select a chat first to regenerate its title.');
+                        return;
+                    }
+
+                    // Add some visual feedback that it's working
+                    this.textContent = 'Regenerating...';
+                    this.disabled = true;
+
+                    fetch(`/api/chat/${currentChatId}/regenerate_title/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        // No body needed for this request as per plan
+                    })
+                    .then(response => {
+                        this.textContent = 'Regen Title'; // Reset button text
+                        this.disabled = false; // Re-enable button
+                        if (!response.ok) {
+                            return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.status === 'success' && data.new_title) {
+                            // Update the chat title in the sidebar
+                            const chatItemToUpdate = document.querySelector(`.chat-item[data-chat-id="${data.chat_id}"]`);
+                            if (chatItemToUpdate) {
+                                const chatLink = chatItemToUpdate.querySelector('.chat-link');
+                                if (chatLink) {
+                                    chatLink.textContent = data.new_title.substring(0, 25) + (data.new_title.length > 25 ? '...' : '');
+                                }
+                                chatItemToUpdate.dataset.chatFullTitle = data.new_title;
+                                // Optionally, display a success message to the user
+                                // alert('Chat title regenerated successfully!');
+                            } else {
+                                console.warn(`Chat item with ID ${data.chat_id} not found in the sidebar to update title.`);
+                            }
+                        } else {
+                            alert('Error regenerating title: ' + (data.error || 'Unknown error from server.'));
+                        }
+                    })
+                    .catch(error => {
+                        this.textContent = 'Regen Title'; // Reset button text on error
+                        this.disabled = false; // Re-enable button on error
+                        console.error('Error regenerating chat title:', error);
+                        alert('Error regenerating title: ' + error.message);
                     });
                 });
             }

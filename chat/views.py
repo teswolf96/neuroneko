@@ -8,10 +8,11 @@ from django.views.decorators.http import require_POST
 from django.db import transaction
 import json
 from django.contrib import messages
+from asgiref.sync import async_to_sync # Added for sync view calling async code
 
 from .models import Chat, Message, Folder, UserSettings, AIEndpoint, AIModel
 from .forms import UserSettingsForm, AIEndpointForm, AIModelForm
-from .api_client import test_anthropic_endpoint # New import
+from .api_client import test_anthropic_endpoint, get_static_completion # New import
 
 
 @login_required
@@ -837,3 +838,69 @@ def set_chat_model_api(request, chat_id):
     chat.save(update_fields=['ai_model_used'])
     
     return JsonResponse({'status': 'success', 'message': f"Chat model updated to '{ai_model.name}'.", 'new_model_name': ai_model.name, 'new_model_id': ai_model.id})
+
+@login_required
+@require_POST
+def regenerate_chat_title_api(request, chat_id): # Changed to sync def
+
+    chat = get_object_or_404(Chat, id=chat_id, user=request.user)
+    user_settings = get_object_or_404(UserSettings, user=request.user)
+    
+    default_model_instance = user_settings.default_model
+    if not default_model_instance:
+        return JsonResponse({'status': 'error', 'error': 'Default AI model not set for user.'}, status=400)
+
+    ai_model_id = default_model_instance.model_id
+    api_key = default_model_instance.endpoint.apikey
+    api_base_url = default_model_instance.endpoint.url
+
+    if not all([ai_model_id, api_key, api_base_url]):
+        return JsonResponse({'status': 'error', 'error': 'AI Model or Endpoint configuration is incomplete (missing ID, key, or URL).'}, status=400)
+
+    first_message = chat.root_message
+    if not first_message:
+        return JsonResponse({'status': 'error', 'error': 'Chat has no messages to generate a title from.'}, status=400)
+
+    second_message = first_message.active_child if first_message else None
+
+    prompt_messages = [
+        {"role": "system", "content": "You are an AI assistant that generates concise and relevant chat titles, ideally 5-7 words long, based on the beginning of a conversation. Do not include quotation marks in the title itself."},
+        {"role": first_message.role, "content": first_message.message}
+    ]
+    if second_message:
+        prompt_messages.append({"role": second_message.role, "content": second_message.message})
+    
+    prompt_messages.append({"role": "user", "content": "Based on the conversation snippet(s) above, suggest a suitable title for this chat."})
+
+    try:
+        # Call the async function synchronously
+        api_response = async_to_sync(get_static_completion)(
+            ai_model_id=ai_model_id,
+            api_base_url=api_base_url,
+            api_key=api_key,
+            messages=prompt_messages,
+            temperature=default_model_instance.default_temperature if default_model_instance.default_temperature is not None else 0.5, # Use model's default or 0.5
+            max_tokens=30 
+        )
+
+        if api_response and api_response.get('content') and isinstance(api_response['content'], list) and len(api_response['content']) > 0:
+            new_title = api_response['content'][0].get('text', '').strip()
+            # Remove leading/trailing quotes if AI adds them
+            if new_title.startswith('"') and new_title.endswith('"'):
+                new_title = new_title[1:-1]
+            if new_title.startswith("'") and new_title.endswith("'"):
+                new_title = new_title[1:-1]
+            
+            if not new_title: # If AI returns empty string
+                 return JsonResponse({'status': 'error', 'error': 'AI failed to generate a title.'}, status=500)
+
+            chat.title = new_title
+            chat.save(update_fields=['title'])
+            return JsonResponse({'status': 'success', 'new_title': chat.title, 'chat_id': chat.id})
+        else:
+            return JsonResponse({'status': 'error', 'error': 'Invalid response format from AI API.'}, status=500)
+
+    except Exception as e:
+        # Log the exception e for debugging
+        print(f"Error during AI call for title regeneration: {e}")
+        return JsonResponse({'status': 'error', 'error': f'Failed to generate title due to an API error: {str(e)}'}, status=500)

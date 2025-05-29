@@ -85,6 +85,8 @@ async def get_static_completion(
 
         payload.update(kwargs) # Add any other specific params
 
+        print("About to call")
+        print(payload)
         response = client.messages.create(**payload)
         
         # Convert the response object to a dictionary for consistent return type
