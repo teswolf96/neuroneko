@@ -16,6 +16,11 @@ from .api_client import test_anthropic_endpoint, get_static_completion # New imp
 
 
 @login_required
+def get_saved_prompts_api(request):
+    prompts = SavedPrompt.objects.filter(user=request.user).values('name', 'prompt_text')
+    return JsonResponse(list(prompts), safe=False)
+
+@login_required
 def index_view(request):
     user_settings, created = UserSettings.objects.get_or_create(user=request.user)
     last_active_chat_id = user_settings.last_active_chat_id if user_settings.last_active_chat else None

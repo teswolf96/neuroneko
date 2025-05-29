@@ -26,6 +26,56 @@
             pointer-events: none; /* This makes the element and its children ignore mouse events */
             opacity: 0.7;         /* Optional: visual feedback to indicate it's locked */
         }
+        /* Styles for Prompt Modal */
+        .prompt-modal {
+            display: none; /* Hidden by default */
+            position: fixed;
+            z-index: 100; /* Sit on top */
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto; /* Enable scroll if needed */
+            background-color: rgba(0,0,0,0.6); /* Black w/ opacity */
+        }
+        .prompt-modal-content {
+            background-color: #2d3748; /* gray-800 */
+            margin: 10% auto; /* 10% from the top and centered */
+            padding: 20px;
+            border: 1px solid #4a5568; /* gray-700 */
+            width: 60%; /* Could be more or less, depending on screen size */
+            max-width: 700px;
+            border-radius: 8px;
+            color: #e2e8f0; /* gray-300 */
+        }
+        .prompt-modal-close-button {
+            color: #cbd5e0; /* gray-400 */
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .prompt-modal-close-button:hover,
+        .prompt-modal-close-button:focus {
+            color: #f7fafc; /* gray-100 */
+            text-decoration: none;
+        }
+        #prompt-filter-input {
+            background-color: #4a5568; /* gray-700 */
+            color: white;
+            border: 1px solid #718096; /* gray-500 */
+        }
+        #prompt-list-container .prompt-item {
+            padding: 8px;
+            cursor: pointer;
+            border-bottom: 1px solid #4a5568; /* gray-700 */
+        }
+        #prompt-list-container .prompt-item:hover {
+            background-color: #4a5568; /* gray-700 */
+        }
+        #prompt-list-container .prompt-item:last-child {
+            border-bottom: none;
+        }
     </style>
     {% block extra_head %}{% endblock %}
 </head>
@@ -161,13 +211,13 @@
         <div class="bg-gray-800 p-4 rounded mt-auto"> <!-- mt-auto to push to bottom -->
             <div class="bg-gray-700 p-4 rounded flex items-start space-x-2">
                 <!-- <div class="bg-red-500 px-2 py-1 rounded">User</div> -->
-                <textarea class="w-full bg-gray-800 p-2 rounded text-white" rows="4" placeholder="Type a message or click / for prompts..."></textarea>
+                <textarea id="message-input" class="w-full bg-gray-800 p-2 rounded text-white" rows="4" placeholder="Type a message..."></textarea>
                 <!-- Button column for Generate, Save, Prompt, Idea -->
                 <div class="flex flex-col space-y-1">
                     <button class="bg-green-500 px-4 py-2 rounded w-full">Generate</button>
                     <button class="bg-gray-600 px-4 py-2 rounded w-full">Save</button>
                     <div class="flex space-x-1 mt-1">
-                        <button class="bg-gray-600 px-3 py-1 rounded text-xs flex-grow">Prompt</button>
+                        <button id="open-prompt-modal-button" class="bg-gray-600 px-3 py-1 rounded text-xs flex-grow">Prompt</button>
                         <button class="bg-gray-600 px-3 py-1 rounded text-xs flex-grow">Idea</button>
                     </div>
                 </div>
@@ -182,6 +232,19 @@
         </div> <!-- Closing div for input area -->
         {% endblock %}
     </main>
+
+    <!-- Prompt Modal HTML -->
+    <div id="prompt-modal" class="prompt-modal">
+        <div class="prompt-modal-content">
+            <span id="prompt-modal-close-button" class="prompt-modal-close-button">&times;</span>
+            <h2 class="text-xl font-semibold mb-4">Select a Prompt</h2>
+            <input type="text" id="prompt-filter-input" class="w-full p-2 mb-4 rounded" placeholder="Filter prompts...">
+            <div id="prompt-list-container" class="max-h-60 overflow-y-auto">
+                <!-- Prompts will be loaded here -->
+            </div>
+        </div>
+    </div>
+
     {% block extra_js %}
     <script>
         document.addEventListener('DOMContentLoaded', function () {
@@ -190,12 +253,21 @@
             const chatModelTempEl = document.getElementById('chat-model-temp');
             // const chatSystemPromptEl = document.getElementById('chat-system-prompt'); // System prompt display removed for now
             const chatMessagesContainerEl = document.getElementById('chat-messages-container');
-            const messageInputTextarea = document.querySelector('textarea[placeholder="Type a message or click / for prompts..."]');
+            const messageInputTextarea = document.getElementById('message-input'); // Added ID to textarea
             const saveButton = document.querySelector('button.bg-gray-600.px-4.py-2.rounded.w-full');
             const generateButton = document.querySelector('button.bg-green-500.px-4.py-2.rounded.w-full'); // Generate button
             const newFolderButton = document.getElementById('new-folder-button');
             // chatMessagesContainerEl, messageInputTextarea, chatModelSelectEl are defined above.
             const sidebarElement = document.querySelector('aside');
+
+            // Prompt Modal Elements
+            const promptModal = document.getElementById('prompt-modal');
+            const openPromptModalButton = document.getElementById('open-prompt-modal-button');
+            const closePromptModalButton = document.getElementById('prompt-modal-close-button');
+            const promptFilterInput = document.getElementById('prompt-filter-input');
+            const promptListContainer = document.getElementById('prompt-list-container');
+            let allPrompts = [];
+            let activePromptTargetTextarea = null; // Initialize to null or to messageInputTextarea
 
 
             let currentActiveChatLi = null;
@@ -705,7 +777,27 @@
 
                     editControlsDiv.appendChild(saveEditButton);
                     editControlsDiv.appendChild(generateButtonInEditMenu);
-                    editControlsDiv.appendChild(cancelEditButton); // Add the cancel button
+                    // editControlsDiv.appendChild(cancelEditButton); // Add the cancel button - MOVED TO END
+
+                    // New "Prompt" button for the edit interface
+                    const promptEditButton = document.createElement('button');
+                    promptEditButton.textContent = 'Prompt';
+                    promptEditButton.classList.add('bg-indigo-500', 'hover:bg-indigo-600', 'text-white', 'px-3', 'py-1', 'rounded', 'text-sm'); // Removed ml-auto for now, will add cancel to its left
+                    promptEditButton.addEventListener('click', function() {
+                        activePromptTargetTextarea = textarea; // Target this specific textarea
+                        promptModal.style.display = 'block';
+                        if (allPrompts.length === 0) {
+                            fetchPrompts();
+                        } else {
+                            renderPrompts(allPrompts);
+                        }
+                        promptFilterInput.value = '';
+                        promptFilterInput.focus();
+                    });
+                    editControlsDiv.appendChild(promptEditButton); // Add before cancel
+
+                    editControlsDiv.appendChild(cancelEditButton); // Add the cancel button (now to the right of Prompt)
+
 
                     editingInterfaceDiv.appendChild(textarea);
                     editingInterfaceDiv.appendChild(editControlsDiv);
@@ -2254,6 +2346,92 @@
                     });
                 });
             }
+
+            // --- Prompt Modal JavaScript ---
+            if (openPromptModalButton) {
+                openPromptModalButton.addEventListener('click', function() {
+                    activePromptTargetTextarea = messageInputTextarea; // Set target to main input
+                    promptModal.style.display = 'block';
+                    if (allPrompts.length === 0) { // Fetch only if not already fetched
+                        fetchPrompts();
+                    } else {
+                        renderPrompts(allPrompts); // Re-render if already fetched (e.g. to clear filter)
+                    }
+                    promptFilterInput.value = ''; // Clear filter on open
+                    promptFilterInput.focus();
+                });
+            }
+
+            if (closePromptModalButton) {
+                closePromptModalButton.addEventListener('click', function() {
+                    promptModal.style.display = 'none';
+                });
+            }
+
+            // Close modal if user clicks outside of it
+            window.addEventListener('click', function(event) {
+                if (event.target == promptModal) {
+                    promptModal.style.display = 'none';
+                }
+            });
+
+            function fetchPrompts() {
+                fetch('/api/prompts/')
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        allPrompts = data;
+                        renderPrompts(allPrompts);
+                    })
+                    .catch(error => {
+                        console.error('Error fetching prompts:', error);
+                        promptListContainer.innerHTML = '<p class="text-red-400">Error loading prompts.</p>';
+                    });
+            }
+
+            function renderPrompts(promptsToDisplay) {
+                promptListContainer.innerHTML = ''; // Clear current list
+                if (promptsToDisplay.length === 0) {
+                    promptListContainer.innerHTML = '<p class="text-gray-400">No prompts found.</p>';
+                    return;
+                }
+                promptsToDisplay.forEach(prompt => {
+                    const promptDiv = document.createElement('div');
+                    promptDiv.classList.add('prompt-item');
+                    promptDiv.textContent = prompt.name;
+                    promptDiv.dataset.promptText = prompt.prompt_text;
+                    promptDiv.addEventListener('click', function() {
+                        if (activePromptTargetTextarea) {
+                            activePromptTargetTextarea.value = this.dataset.promptText;
+                            // Dispatch an input event to trigger any auto-resize or other listeners
+                            const inputEvent = new Event('input', { bubbles: true, cancelable: true });
+                            activePromptTargetTextarea.dispatchEvent(inputEvent);
+                            activePromptTargetTextarea.focus();
+                        } else {
+                            // Fallback to main input if target is somehow not set (should not happen with new logic)
+                            messageInputTextarea.value = this.dataset.promptText;
+                            const inputEvent = new Event('input', { bubbles: true, cancelable: true });
+                            messageInputTextarea.dispatchEvent(inputEvent);
+                            messageInputTextarea.focus();
+                        }
+                        promptModal.style.display = 'none';
+                    });
+                    promptListContainer.appendChild(promptDiv);
+                });
+            }
+
+            if (promptFilterInput) {
+                promptFilterInput.addEventListener('input', function() {
+                    const filterText = this.value.toLowerCase();
+                    const filteredPrompts = allPrompts.filter(p => p.name.toLowerCase().includes(filterText));
+                    renderPrompts(filteredPrompts);
+                });
+            }
+            // --- End of Prompt Modal JavaScript ---
 
         });
     </script>

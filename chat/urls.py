@@ -37,6 +37,9 @@ urlpatterns = [
     path('api/chat/<int:chat_id>/rename_title/', views.rename_chat_title_api, name='rename_chat_title_api'),
     path('api/chat/<int:chat_id>/delete/', views.delete_chat_api, name='delete_chat_api'),
 
+    # API endpoint for saved prompts
+    path('api/prompts/', views.get_saved_prompts_api, name='get_saved_prompts_api'),
+
     # API endpoints for folder management
     path('api/folder/create/', views.create_folder_api, name='create_folder_api'),
     path('api/folder/rename/', views.rename_folder_api, name='rename_folder_api'),
