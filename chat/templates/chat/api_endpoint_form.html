@@ -41,7 +41,75 @@
             <a href="{% url 'api_config' %}" class="text-gray-400 hover:text-white py-2 px-4 rounded-lg border border-gray-600 hover:bg-gray-700">
                 Cancel and Back to API Configuration
             </a>
+            <button type="button" id="testEndpointBtn" data-endpoint-id="{{ endpoint.id }}" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-opacity-50">
+                Test Endpoint
+            </button>
         </div>
     </form>
+    <div id="testResult" class="mt-4 text-sm"></div>
 </div>
+
+<script>
+    const testEndpointBtn = document.getElementById('testEndpointBtn');
+    const testResultDiv = document.getElementById('testResult');
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    if (testEndpointBtn) {
+        testEndpointBtn.addEventListener('click', function() {
+            const endpointId = this.dataset.endpointId;
+            if (!endpointId) {
+                testResultDiv.className = 'mt-4 text-sm p-3 rounded bg-red-700 text-white';
+                testResultDiv.textContent = 'Error: Endpoint ID not found.';
+                return;
+            }
+
+            testResultDiv.className = 'mt-4 text-sm p-3 rounded bg-gray-700 text-white';
+            testResultDiv.textContent = 'Testing endpoint...';
+            fetch(`/test_api_endpoint/${endpointId}/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrfToken,
+                    'Content-Type': 'application/json'
+                },
+                // No body needed as endpoint_id in URL is sufficient
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    testResultDiv.className = 'mt-4 text-sm p-3 rounded bg-green-600 text-white';
+                    let detailsText = '';
+                    if (data.details && typeof data.details === 'object') {
+                        // Safely stringify details, handling potential circular references or large objects if necessary
+                        try {
+                            detailsText = ` (Details: ${JSON.stringify(data.details)})`;
+                        } catch (e) {
+                            detailsText = ' (Details: unable to display)';
+                        }
+                    } else if (data.details) {
+                         detailsText = ` (Details: ${data.details})`;
+                    }
+                    testResultDiv.textContent = `${data.message}${detailsText}`;
+                } else {
+                    testResultDiv.className = 'mt-4 text-sm p-3 rounded bg-red-600 text-white';
+                    let errorDetails = '';
+                    if (data.details && typeof data.details === 'object') {
+                        try {
+                            errorDetails = ` (Details: ${JSON.stringify(data.details)})`;
+                        } catch (e) {
+                            errorDetails = ' (Details: unable to display)';
+                        }
+                    } else if (data.details) {
+                        errorDetails = ` (Details: ${data.details})`;
+                    }
+                    testResultDiv.textContent = `Error: ${data.message}${errorDetails}`;
+                }
+            })
+            .catch(error => {
+                testResultDiv.className = 'mt-4 text-sm p-3 rounded bg-red-600 text-white';
+                testResultDiv.textContent = 'Network error or server issue: ' + error.message;
+                console.error('Test Endpoint Error:', error);
+            });
+        });
+    }
+</script>
 {% endblock %}

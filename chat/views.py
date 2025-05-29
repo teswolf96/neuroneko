@@ -11,6 +11,7 @@ from django.contrib import messages
 
 from .models import Chat, Message, Folder, UserSettings, AIEndpoint, AIModel
 from .forms import UserSettingsForm, AIEndpointForm, AIModelForm
+from .api_client import test_anthropic_endpoint # New import
 
 
 @login_required
@@ -186,6 +187,24 @@ def api_model_delete_view(request, pk):
     model_instance.delete()
     messages.success(request, f"AI Model '{model_name}' deleted successfully.")
     return redirect('api_config')
+
+@login_required
+@require_POST
+def test_api_endpoint_view(request, endpoint_id):
+    endpoint = get_object_or_404(AIEndpoint, pk=endpoint_id, user=request.user)
+    
+    if not endpoint.url or not endpoint.apikey:
+        return JsonResponse({"status": "error", "message": "Endpoint URL or API key is missing in the configuration."}, status=400)
+
+    # Assuming this endpoint is intended for Anthropic.
+    # Future: Could add a 'provider' field to AIEndpoint to dispatch to different test functions.
+    result = test_anthropic_endpoint(api_key=endpoint.apikey, base_url=endpoint.url)
+    
+    http_status = 200 if result["status"] == "success" else 400
+    if result["status"] == "error" and "An unexpected error occurred" in result["message"]:
+        http_status = 500
+            
+    return JsonResponse(result, status=http_status)
 
 
 # --- Existing Views (Signup, Login, Logout, etc.) ---
