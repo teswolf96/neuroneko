@@ -107,6 +107,23 @@ class SavedPrompt(models.Model): # Renamed from FavoritePrompt
         verbose_name = "Saved Prompt"         # For singular name in Django admin
         verbose_name_plural = "Saved Prompts" # For plural name in Django admin
 
+
+class Idea(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='saved_ideas', help_text="The user who saved this idea")
+    name = models.CharField(max_length=255, help_text="A name for this saved idea (e.g., 'Blog Post Concept')")
+    idea_text = models.TextField(help_text="The content of the saved idea") # Changed from prompt_text
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the idea was first saved")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the idea was last updated")
+
+    def __str__(self):
+        return f"'{self.name}' by {self.user.username} (Saved Idea)"
+
+    class Meta:
+        ordering = ['-created_at'] # Show newest saved ideas first
+        unique_together = ('user', 'name') # Ensure idea names are unique per user
+        verbose_name = "Saved Idea"
+        verbose_name_plural = "Saved Ideas"
+
 @receiver(post_save, sender=User)
 def create_user_settings(sender, instance, created, **kwargs):
     """

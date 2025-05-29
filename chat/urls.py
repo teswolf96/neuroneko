@@ -10,6 +10,12 @@ urlpatterns = [
     path('manage-prompts/', views.manage_prompts_view, name='manage_prompts'),
     path('manage-prompts/update/<int:pk>/', views.prompt_update_view, name='prompt_update'),
     path('manage-prompts/delete/<int:pk>/', views.prompt_delete_view, name='prompt_delete'),
+    
+    # Saved Ideas URLs
+    path('manage-ideas/', views.manage_ideas_view, name='manage_ideas'),
+    path('manage-ideas/update/<int:pk>/', views.idea_update_view, name='idea_update'),
+    path('manage-ideas/delete/<int:pk>/', views.idea_delete_view, name='idea_delete'),
+    
     path('create_new_chat/', views.create_new_chat_view, name='create_new_chat'),
 
     # API Configuration URLs

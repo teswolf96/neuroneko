@@ -1,5 +1,5 @@
 from django import forms
-from .models import UserSettings, AIModel, AIEndpoint, SavedPrompt
+from .models import UserSettings, AIModel, AIEndpoint, SavedPrompt, Idea # Added Idea
 
 class UserSettingsForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
@@ -121,6 +121,38 @@ class SavedPromptForm(forms.ModelForm):
         help_texts = {
             'name': "A short, descriptive name for your prompt.",
             'prompt_text': "The actual text of the prompt you want to save.",
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.user = kwargs.pop('user', None) # Store user if passed
+        super().__init__(*args, **kwargs)
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        if self.user:
+            instance.user = self.user # Assign user before saving
+        if commit:
+            instance.save()
+        return instance
+
+class IdeaForm(forms.ModelForm):
+    class Meta:
+        model = Idea
+        fields = ['name', 'idea_text']
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm',
+                'placeholder': 'Enter a name for your idea'
+            }),
+            'idea_text': forms.Textarea(attrs={
+                'rows': 5,
+                'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm',
+                'placeholder': 'Enter the idea text'
+            }),
+        }
+        help_texts = {
+            'name': "A short, descriptive name for your idea.",
+            'idea_text': "The actual text of the idea you want to save.",
         }
 
     def __init__(self, *args, **kwargs):

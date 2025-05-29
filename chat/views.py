@@ -10,8 +10,8 @@ import json
 from django.contrib import messages
 from asgiref.sync import async_to_sync # Added for sync view calling async code
 
-from .models import Chat, Message, Folder, UserSettings, AIEndpoint, AIModel, SavedPrompt
-from .forms import UserSettingsForm, AIEndpointForm, AIModelForm, SavedPromptForm
+from .models import Chat, Message, Folder, UserSettings, AIEndpoint, AIModel, SavedPrompt, Idea # Added Idea
+from .forms import UserSettingsForm, AIEndpointForm, AIModelForm, SavedPromptForm, IdeaForm # Added IdeaForm
 from .api_client import test_anthropic_endpoint, get_static_completion # New import
 
 
@@ -127,6 +127,53 @@ def prompt_delete_view(request, pk):
     prompt.delete()
     messages.success(request, f"Prompt '{prompt_name}' deleted successfully.")
     return redirect('manage_prompts')
+
+@login_required
+def manage_ideas_view(request):
+    if request.method == 'POST':
+        form = IdeaForm(request.POST, user=request.user)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Idea saved successfully!')
+            return redirect('manage_ideas')
+        else:
+            ideas = Idea.objects.filter(user=request.user)
+            context = {
+                'ideas': ideas,
+                'form': form
+            }
+            return render(request, 'chat/manage_ideas.html', context)
+    else:
+        form = IdeaForm(user=request.user)
+    
+    ideas = Idea.objects.filter(user=request.user)
+    context = {
+        'ideas': ideas,
+        'form': form
+    }
+    return render(request, 'chat/manage_ideas.html', context)
+
+@login_required
+def idea_update_view(request, pk):
+    idea = get_object_or_404(Idea, pk=pk, user=request.user)
+    if request.method == 'POST':
+        form = IdeaForm(request.POST, instance=idea, user=request.user)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Idea updated successfully!')
+            return redirect('manage_ideas')
+    else:
+        form = IdeaForm(instance=idea, user=request.user)
+    return render(request, 'chat/idea_form.html', {'form': form, 'idea_instance': idea})
+
+@login_required
+@require_POST
+def idea_delete_view(request, pk):
+    idea = get_object_or_404(Idea, pk=pk, user=request.user)
+    idea_name = idea.name
+    idea.delete()
+    messages.success(request, f"Idea '{idea_name}' deleted successfully.")
+    return redirect('manage_ideas')
 
 # API Endpoint Views
 @login_required

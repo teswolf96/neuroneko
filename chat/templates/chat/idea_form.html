@@ -1,0 +1,76 @@
+{% extends "chat/index.html" %}
+
+{% block title %}
+    {% if idea_instance %}
+        Edit Idea: {{ idea_instance.name }}
+    {% else %}
+        Add New Idea
+    {% endif %}
+    - {{ block.super }}
+{% endblock %}
+
+{% block content %}
+<div class="p-4">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-semibold text-white">
+            {% if idea_instance %}
+                Edit Idea: <span class="text-blue-400">{{ idea_instance.name }}</span>
+            {% else %}
+                Add New Idea
+            {% endif %}
+        </h1>
+        <a href="{% url 'manage_ideas' %}" class="bg-gray-600 hover:bg-gray-500 text-white font-semibold py-2 px-4 rounded-md text-sm transition duration-150 ease-in-out">
+            &larr; Back to Manage Ideas
+        </a>
+    </div>
+
+    <div class="bg-gray-800 p-6 rounded-lg shadow max-w-2xl mx-auto">
+        <form method="post" class="space-y-6">
+            {% csrf_token %}
+            
+            <div>
+                <label for="{{ form.name.id_for_label }}" class="block text-sm font-medium text-gray-300 mb-1">Idea Name</label>
+                {{ form.name }}
+                {% if form.name.help_text %}
+                    <p class="mt-1 text-xs text-gray-400">{{ form.name.help_text }}</p>
+                {% endif %}
+                {% if form.name.errors %}
+                    <div class="mt-1 text-sm text-red-400">
+                        {% for error in form.name.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+
+            <div>
+                <label for="{{ form.idea_text.id_for_label }}" class="block text-sm font-medium text-gray-300 mb-1">Idea Text</label>
+                {{ form.idea_text }}
+                {% if form.idea_text.help_text %}
+                    <p class="mt-1 text-xs text-gray-400">{{ form.idea_text.help_text }}</p>
+                {% endif %}
+                {% if form.idea_text.errors %}
+                    <div class="mt-1 text-sm text-red-400">
+                        {% for error in form.idea_text.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+
+            <div class="flex items-center justify-end space-x-3 pt-4">
+                <a href="{% url 'manage_ideas' %}" class="bg-gray-600 hover:bg-gray-500 text-white font-semibold py-2 px-4 rounded-md text-sm transition duration-150 ease-in-out">
+                    Cancel
+                </a>
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-md text-sm transition duration-150 ease-in-out">
+                    {% if idea_instance %}
+                        Save Changes
+                    {% else %}
+                        Save Idea
+                    {% endif %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
