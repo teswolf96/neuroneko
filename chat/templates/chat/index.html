@@ -524,6 +524,52 @@
                     plusButton.classList.add('bg-gray-500', 'text-white', 'rounded-full', 'w-5', 'h-5', 'flex', 'items-center', 'justify-center', 'text-xs', 'hover:bg-gray-400', 'focus:outline-none');
                     plusButtonDiv.appendChild(plusButton);
                     footerDiv.appendChild(plusButtonDiv);
+
+                    // Event listener for the Plus button
+                    plusButton.addEventListener('click', function() {
+                        const parentMessageId = messageDiv.dataset.messageId; // ID of the message this '+' belongs to
+
+                        if (!currentChatId || !parentMessageId) {
+                            console.error('Chat ID or Parent Message ID is missing for adding child message.');
+                            alert('Could not add message: Chat or Parent Message ID missing.');
+                            return;
+                        }
+
+                        // Using a NEW endpoint for this specific child-adding logic
+                        fetch(`/api/chat/${currentChatId}/message/${parentMessageId}/add_child_message/`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': '{{ csrf_token }}'
+                            },
+                            // Sending empty content, backend creates an empty message
+                            body: JSON.stringify({ content: "" }) 
+                        })
+                        .then(response => {
+                            if (!response.ok) {
+                                return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            console.log('Add child message successful:', data.message);
+                            // Refresh the chat view (same logic as Save button)
+                            const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                            if (activeChatListItem) {
+                                activeChatListItem.click();
+                            } else if (currentChatId) {
+                                const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                                if (targetChatLink) {
+                                    const targetChatItem = targetChatLink.closest('.chat-item');
+                                    if (targetChatItem) targetChatItem.click();
+                                }
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error adding child message:', error);
+                            alert('Error adding child message: ' + error.message);
+                        });
+                    });
                 }
 
                 // Navigation Arrows for active siblings

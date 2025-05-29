@@ -618,6 +618,67 @@ def set_active_child_api(request, chat_id):
 
 @login_required
 @require_POST
+def add_child_message_api(request, chat_id, parent_message_id):
+    chat_session = get_object_or_404(Chat, id=chat_id, user=request.user)
+    parent_message = get_object_or_404(Message, id=parent_message_id, chat=chat_session)
+
+    try:
+        # Frontend sends `JSON.stringify({ content: "" })`
+        # No data strictly needed from request body for this specific action beyond path params
+        # If data were needed:
+        # data = json.loads(request.body)
+        # message_content = data.get('content', "")
+        pass
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'error': 'Invalid JSON in request body.'}, status=400)
+
+    with transaction.atomic():
+        # 1. Create the new empty message
+        new_empty_message = Message.objects.create(
+            chat=chat_session,
+            message="",  # Empty content
+            role="assistant",  # Default role for an empty, system-generated-like node
+            parent=parent_message
+        )
+
+        # 2. Get existing children of the original parent_message
+        #    Exclude the new_empty_message itself from this set.
+        original_children = list(parent_message.children.exclude(id=new_empty_message.id).order_by('created_at'))
+
+        if not original_children:
+            # Scenario 1: Parent message had no other children.
+            # new_empty_message is now its only child.
+            # Set new_empty_message as the active_child of parent_message.
+            parent_message.active_child = new_empty_message
+            parent_message.save(update_fields=['active_child'])
+            # new_empty_message itself has no children yet, so its active_child remains None.
+        else:
+            # Scenario 2: Parent message had existing children.
+            # These original_children now need to become children of new_empty_message.
+            for child in original_children:
+                child.parent = new_empty_message
+                # If you had a sibling_order field, you'd re-calculate it here.
+                child.save(update_fields=['parent'])
+
+            # Set the first of the original children as the active_child of new_empty_message.
+            if original_children: # Ensure list is not empty
+                new_empty_message.active_child = original_children[0]
+                new_empty_message.save(update_fields=['active_child'])
+
+            # Now, set new_empty_message as the active_child of the original parent_message.
+            parent_message.active_child = new_empty_message
+            parent_message.save(update_fields=['active_child'])
+    
+    return JsonResponse({
+        'status': 'success',
+        'message': 'Child message created and structure updated.',
+        'new_message_id': new_empty_message.id,
+        'parent_id': parent_message.id
+    })
+
+
+@login_required
+@require_POST
 def rename_chat_title_api(request, chat_id):
     chat = get_object_or_404(Chat, id=chat_id, user=request.user)
     try:

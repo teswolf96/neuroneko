@@ -28,6 +28,7 @@ urlpatterns = [
     path('api/chat/<int:chat_id>/message/<int:message_id>/delete/', views.delete_message_api, name='delete_message_api'),
     path('api/chat/<int:chat_id>/message/<int:source_message_id>/add_sibling/', views.add_sibling_message_api, name='add_sibling_message_api'),
     path('api/chat/<int:chat_id>/set_active_child/', views.set_active_child_api, name='set_active_child_api'),
+    path('api/chat/<int:chat_id>/message/<int:parent_message_id>/add_child_message/', views.add_child_message_api, name='add_child_message_api'), # New route
     path('api/chat/<int:chat_id>/rename_title/', views.rename_chat_title_api, name='rename_chat_title_api'),
     path('api/chat/<int:chat_id>/delete/', views.delete_chat_api, name='delete_chat_api'),
 
