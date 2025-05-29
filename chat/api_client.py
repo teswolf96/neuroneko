@@ -143,7 +143,6 @@ async def stream_completion(
         **kwargs: Additional parameters to pass to the API.
     """
     try:
-        print(api_key)
         client = AsyncAnthropic(api_key=api_key, base_url=api_base_url if api_base_url else None, http_client=http_async_client_without_ssl_verification)
         
         payload = {
