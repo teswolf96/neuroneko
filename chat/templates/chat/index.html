@@ -190,19 +190,178 @@
             // const chatSystemPromptEl = document.getElementById('chat-system-prompt'); // System prompt display removed for now
             const chatMessagesContainerEl = document.getElementById('chat-messages-container');
             const messageInputTextarea = document.querySelector('textarea[placeholder="Type a message or click / for prompts..."]');
-            const saveButton = document.querySelector('button.bg-gray-600.px-4.py-2.rounded.w-full'); // More specific selector if needed
+            const saveButton = document.querySelector('button.bg-gray-600.px-4.py-2.rounded.w-full');
+            const generateButton = document.querySelector('button.bg-green-500.px-4.py-2.rounded.w-full'); // Generate button
             const newFolderButton = document.getElementById('new-folder-button');
+            // chatMessagesContainerEl, messageInputTextarea, chatModelSelectEl are defined above.
+            const sidebarElement = document.querySelector('aside');
+
 
             let currentActiveChatLi = null;
             let currentChatId = null; // To store the ID of the currently active chat
             let currentChatRootMessageId = null; // To store the root message ID of the active chat
             const lastActiveChatIdFromDjango = '{{ last_active_chat_id|default_if_none:"" }}';
+            let chatSocket = null;
+            let currentAssistantMessageId = null; // Store ID of the assistant message being streamed into
+            let currentAssistantMessageContentEl = null; // Store the content DOM element of the assistant message
+
+            // Cancel button (initially hidden)
+            const cancelGenerationButton = document.createElement('button');
+            cancelGenerationButton.id = 'cancel-generation-button';
+            cancelGenerationButton.textContent = 'Cancel';
+            cancelGenerationButton.classList.add('bg-red-500', 'hover:bg-red-600', 'text-white', 'px-4', 'py-2', 'rounded', 'w-full', 'hidden');
+            // Insert it after the Generate button
+            if (generateButton && generateButton.parentElement) {
+                generateButton.parentElement.insertBefore(cancelGenerationButton, generateButton.nextSibling);
+            }
+
+            cancelGenerationButton.addEventListener('click', function() {
+                if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+                    chatSocket.send(JSON.stringify({ type: 'cancel_generation' }));
+                    this.textContent = 'Cancelling...';
+                    this.disabled = true;
+                }
+            });
+
+
+            function connectWebSocket(chatId) {
+                if (chatSocket) {
+                    chatSocket.close();
+                }
+                const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+                // Ensure chat_id is valid before trying to connect
+                if (!chatId || chatId === 'null' || chatId === 'undefined') {
+                    console.error("Invalid chat_id for WebSocket connection:", chatId);
+                    // Optionally, display an error to the user or prevent connection attempt
+                    return;
+                }
+                const wsPath = `${wsScheme}://${window.location.host}/ws/chat/${chatId}/`;
+                chatSocket = new WebSocket(wsPath);
+
+                chatSocket.onopen = function(e) {
+                    console.log(`WebSocket connection opened for chat ${chatId}`);
+                };
+
+                chatSocket.onmessage = function(e) {
+                    const data = JSON.parse(e.data);
+                    console.log("WebSocket message received:", data);
+
+                    switch (data.type) {
+                        case 'user_message_created':
+                            // The user message is already added optimistically by renderMessage
+                            // or we can refresh the specific message if needed.
+                            // For now, we assume the UI is up-to-date or will be with the assistant placeholder.
+                            // We might need to update its ID if it was a temporary one.
+                            // Let's ensure the message div for user message exists and has correct ID.
+                            let userMsgDiv = chatMessagesContainerEl.querySelector(`[data-message-id="${data.parent_id}"]`); // This assumes parent_id is the one before user's
+                                                                                                                            // This logic needs to be more robust if user message is added dynamically by JS first.
+                                                                                                                            // For now, let's assume the user message is the one whose parent is data.parent_id
+                                                                                                                            // and it's the last one.
+                            const allMessages = chatMessagesContainerEl.querySelectorAll('[data-message-id]');
+                            if (allMessages.length > 0) {
+                                const potentialUserMsg = allMessages[allMessages.length -1]; // last message
+                                if (potentialUserMsg && potentialUserMsg.querySelector('select').value === 'user') {
+                                     potentialUserMsg.setAttribute('data-message-id', data.message_id);
+                                }
+                            }
+                            chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
+                            break;
+                        case 'assistant_message_placeholder_created':
+                            currentAssistantMessageId = data.message_id;
+                            const newAssistantMsg = {
+                                id: data.message_id,
+                                role: data.role,
+                                content: "", // Placeholder is empty
+                                parent_id: data.parent_id
+                            };
+                            // Find the message index. It's after the last user message.
+                            const messagesInUI = chatMessagesContainerEl.querySelectorAll('[data-message-id]');
+                            renderMessage(newAssistantMsg, chatMessagesContainerEl, true, messagesInUI.length, currentChatRootMessageId);
+                            currentAssistantMessageContentEl = chatMessagesContainerEl.querySelector(`[data-message-id="${currentAssistantMessageId}"] .prose`);
+                            chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
+                            break;
+                        case 'lock_sidebar':
+                            lockSidebar();
+                            break;
+                        case 'unlock_sidebar':
+                            unlockSidebar();
+                            // Reset Generate/Cancel buttons
+                            generateButton.disabled = false;
+                            generateButton.textContent = 'Generate';
+                            messageInputTextarea.disabled = false;
+                            cancelGenerationButton.classList.add('hidden');
+                            cancelGenerationButton.disabled = false;
+                            cancelGenerationButton.textContent = 'Cancel';
+                            currentAssistantMessageId = null;
+                            currentAssistantMessageContentEl = null;
+                            break;
+                        case 'stream_chunk':
+                            if (data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
+                                // Append text and re-render Markdown
+                                const currentRawContent = currentAssistantMessageContentEl.dataset.rawContent || "";
+                                const newRawContent = currentRawContent + data.text_delta;
+                                currentAssistantMessageContentEl.dataset.rawContent = newRawContent;
+                                currentAssistantMessageContentEl.innerHTML = marked.parse(newRawContent, { breaks: false, gfm: true });
+                                chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
+                            }
+                            break;
+                        case 'stream_end':
+                            if (data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
+                                currentAssistantMessageContentEl.dataset.rawContent = data.full_content; // Store final raw content
+                                currentAssistantMessageContentEl.innerHTML = marked.parse(data.full_content, { breaks: false, gfm: true });
+                            }
+                            // UI reset is handled by unlock_sidebar which should follow
+                            break;
+                        case 'stream_cancelled':
+                             if (data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
+                                // Content should already be updated by last chunk before cancel or by consumer saving partial
+                                console.log("Stream was cancelled by server or client ack.");
+                            }
+                            // UI reset is handled by unlock_sidebar
+                            break;
+                        case 'stream_error':
+                            if (data.assistant_message_id && data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
+                                currentAssistantMessageContentEl.innerHTML = `<p class="text-red-400">Error: ${data.error}</p>`;
+                            } else {
+                                // General error display or append to last message
+                                const errorDisplay = document.createElement('p');
+                                errorDisplay.classList.add('text-red-400', 'p-2');
+                                errorDisplay.textContent = `Server Error: ${data.error}`;
+                                chatMessagesContainerEl.appendChild(errorDisplay);
+                            }
+                            // UI reset is handled by unlock_sidebar
+                            break;
+                        case 'info':
+                            console.log("Server Info:", data.message);
+                            // Could display this info somewhere if needed
+                            break;
+                    }
+                };
+
+                chatSocket.onclose = function(e) {
+                    console.error('Chat socket closed unexpectedly');
+                    // Optionally, try to reconnect or notify user
+                };
+
+                chatSocket.onerror = function(err) {
+                    console.error('WebSocket encountered error: ', err.message, 'Closing socket');
+                    chatSocket.close();
+                };
+            }
 
             // Function to render a single message
             function renderMessage(msg, container, showPlusIcon, messageIndex, chatRootMessageId) { // Added chatRootMessageId
                 const messageDiv = document.createElement('div');
-                messageDiv.classList.add('p-3', 'rounded-lg', 'break-words', 'mb-2', 'relative', 'text-gray-100'); // Added relative for icon positioning and default text color
-                messageDiv.setAttribute('data-message-id', msg.id);
+                messageDiv.classList.add('p-3', 'rounded-lg', 'break-words', 'mb-2', 'relative', 'text-gray-100');
+                
+                let messageIdToSet = msg.id;
+                if (msg.id === null || msg.id === undefined || String(msg.id).startsWith('temp-')) {
+                    // Use provided temp ID or generate one if msg.id is truly null/undefined
+                    messageIdToSet = msg.id || `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    if (!msg.id) console.warn("Rendered message with newly generated temporary ID for msg:", msg);
+                }
+                messageDiv.setAttribute('data-message-id', messageIdToSet);
+
 
                 // Role Dropdown
                 const roleSelect = document.createElement('select');
@@ -259,7 +418,9 @@
 
                 const contentP = document.createElement('div'); // Changed to div to better accommodate block elements from Markdown
                 contentP.classList.add('text-sm', 'prose', 'prose-sm', 'prose-invert', 'max-w-none', 'whitespace-pre-line'); // Added prose classes and whitespace-pre-line
-                contentP.innerHTML = marked.parse(msg.content || '', { breaks: false, gfm: true }); // Use marked.parse, ensure gfm is on, breaks off.
+                const rawContent = msg.content || ''; // Ensure rawContent is defined
+                contentP.innerHTML = marked.parse(rawContent, { breaks: false, gfm: true }); // Use marked.parse, ensure gfm is on, breaks off.
+                contentP.dataset.rawContent = rawContent; // Store raw content for easier updates
 
                 // Alternating grey backgrounds
                 if (messageIndex % 2 === 0) {
@@ -796,9 +957,17 @@
                                 chatMessagesContainerEl.innerHTML = '<p class="text-gray-500 p-4">No messages in this chat yet.</p>';
                             }
                             chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
+                            
+                            // Connect WebSocket for the newly selected/loaded chat
+                            if (currentChatId) { // Ensure currentChatId is valid
+                                connectWebSocket(currentChatId);
+                            }
                         })
                         .catch(error => {
                             console.error('Error fetching chat details:', error);
+                            if (chatSocket && chatSocket.readyState === WebSocket.OPEN) { 
+                                chatSocket.close();
+                            }
                             chatMessagesContainerEl.innerHTML = '<p class="text-red-400 p-4">Error loading chat. Please try again.</p>';
                             if (currentActiveChatLi) {
                                 currentActiveChatLi.classList.remove('bg-blue-600', 'text-white');
@@ -859,7 +1028,7 @@
                 }
             }
 
-            // Save button functionality
+            // Save button functionality (remains for non-streaming save)
             if (saveButton) {
                 saveButton.addEventListener('click', function() {
                     const messageContent = messageInputTextarea.value.trim();
@@ -930,6 +1099,63 @@
             } else {
                 console.warn("Save button not found.");
             }
+
+            // Generate button functionality (for streaming)
+            if (generateButton) {
+                generateButton.addEventListener('click', function() {
+                    const userMessageContent = messageInputTextarea.value.trim();
+                    if (!userMessageContent) {
+                        alert('Please type a message to generate a response.');
+                        return;
+                    }
+                    if (!currentChatId) {
+                        alert('Please select a chat first.');
+                        return;
+                    }
+                    if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+                        alert('WebSocket is not connected. Please try selecting the chat again or refresh.');
+                        // Optionally, try to reconnect:
+                        // if (currentChatId) connectWebSocket(currentChatId);
+                        return;
+                    }
+
+                    const selectedModelId = chatModelSelectEl.value;
+                    if (!selectedModelId) {
+                        alert('Please select an AI model.');
+                        return;
+                    }
+
+                    // Optimistically render the user's message
+                    const tempUserMsgData = {
+                        id: `temp-user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Unique temp ID
+                        role: 'user',
+                        content: userMessageContent,
+                        // parent_id will be the last message in UI, or root if no messages.
+                        // The consumer will determine the actual parent.
+                    };
+                    const messagesInUI = chatMessagesContainerEl.querySelectorAll('[data-message-id]');
+                    // The renderMessage function will handle the temporary ID.
+                    renderMessage(tempUserMsgData, chatMessagesContainerEl, true, messagesInUI.length, currentChatRootMessageId);
+                    chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
+
+
+                    chatSocket.send(JSON.stringify({
+                        type: 'start_generation',
+                        user_message_content: userMessageContent,
+                        model_id: selectedModelId
+                        // temperature and max_tokens will be handled by consumer based on model/user settings
+                    }));
+
+                    messageInputTextarea.value = ''; // Clear textarea
+                    messageInputTextarea.disabled = true;
+                    this.disabled = true; // Disable Generate button
+                    this.textContent = 'Generating...';
+                    cancelGenerationButton.classList.remove('hidden'); // Show Cancel button
+                    cancelGenerationButton.disabled = false;
+                    cancelGenerationButton.textContent = 'Cancel';
+                });
+            }
+
 
             // Show/Hide folder actions on hover
             document.querySelectorAll('.folder-item-container summary').forEach(summaryElement => {

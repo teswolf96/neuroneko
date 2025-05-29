@@ -1,5 +1,6 @@
 # chat/api_client.py
 import anthropic
+from anthropic import AsyncAnthropic
 import json
 from typing import Callable, Awaitable, Dict, Any, List
 
@@ -85,7 +86,6 @@ async def get_static_completion(
 
         payload.update(kwargs) # Add any other specific params
 
-        print("About to call")
         print(payload)
         response = client.messages.create(**payload)
         
@@ -139,7 +139,7 @@ async def stream_completion(
         **kwargs: Additional parameters to pass to the API.
     """
     try:
-        client = anthropic.Anthropic(api_key=api_key, base_url=api_base_url if api_base_url else None)
+        client = AsyncAnthropic(api_key=api_key, base_url=api_base_url if api_base_url else None)
         
         payload = {
             "model": ai_model_id,
