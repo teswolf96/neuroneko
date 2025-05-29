@@ -90,6 +90,23 @@ class Message(models.Model):
     class Meta:
         ordering = ['created_at'] # Ensure messages are ordered by creation time by default
 
+class SavedPrompt(models.Model): # Renamed from FavoritePrompt
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='saved_prompts', help_text="The user who saved this prompt") # Updated related_name
+    name = models.CharField(max_length=255, help_text="A name for this saved prompt (e.g., 'Story Idea Generator')")
+    prompt_text = models.TextField(help_text="The content of the saved prompt")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the prompt was first saved")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the prompt was last updated")
+    # Optional: We could add a category or tags later if needed for organization.
+
+    def __str__(self):
+        return f"'{self.name}' by {self.user.username} (Saved Prompt)" # Updated __str__ for clarity
+
+    class Meta:
+        ordering = ['-created_at'] # Show newest saved prompts first
+        unique_together = ('user', 'name') # Ensure prompt names are unique per user
+        verbose_name = "Saved Prompt"         # For singular name in Django admin
+        verbose_name_plural = "Saved Prompts" # For plural name in Django admin
+
 @receiver(post_save, sender=User)
 def create_user_settings(sender, instance, created, **kwargs):
     """
