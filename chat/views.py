@@ -685,7 +685,7 @@ def add_child_message_api(request, chat_id, parent_message_id):
         new_empty_message = Message.objects.create(
             chat=chat_session,
             message="",  # Empty content
-            role="assistant",  # Default role for an empty, system-generated-like node
+            role="user",  # Default role for an empty, system-generated-like node
             parent=parent_message
         )
 
