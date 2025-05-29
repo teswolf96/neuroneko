@@ -2429,7 +2429,7 @@
                             if (chatItemToUpdate) {
                                 const chatLink = chatItemToUpdate.querySelector('.chat-link');
                                 if (chatLink) {
-                                    chatLink.textContent = data.new_title.substring(0, 25) + (data.new_title.length > 25 ? '...' : '');
+                                    chatLink.textContent = data.new_title//.substring(0, 25) + (data.new_title.length > 25 ? '...' : '');
                                 }
                                 chatItemToUpdate.dataset.chatFullTitle = data.new_title;
                                 // Optionally, display a success message to the user
