@@ -207,13 +207,13 @@
         </div> <!-- Moved closing div for settings/system prompt block -->
 
         <!-- Chat Messages Area -->
-        <div id="chat-messages-container" class="flex-grow overflow-y-auto bg-gray-750 p-1 rounded mb-4 space-y-2">
+        <div id="chat-messages-container" class="flex-grow overflow-y-auto bg-gray-750 px-64 py-2 rounded mb-4 space-y-2">
             <p class="text-gray-500">Select a chat to view messages.</p> 
         </div>
 
         <!-- Input Area -->
-        <div class="bg-gray-800 p-4 rounded mt-auto"> <!-- mt-auto to push to bottom -->
-            <div class="bg-gray-700 p-4 rounded flex items-start space-x-2">
+        <div class="bg-gray-800 p-2 rounded mt-auto"> <!-- mt-auto to push to bottom -->
+            <div class="bg-gray-700 p-2 rounded flex items-start space-x-2">
                 <!-- <div class="bg-red-500 px-2 py-1 rounded">User</div> -->
                 <textarea id="message-input" class="w-full bg-gray-800 p-2 rounded text-white" rows="4" placeholder="Type a message..."></textarea>
                 <!-- Button column for Generate, Save, Prompt, Idea -->
@@ -228,7 +228,7 @@
             </div>
             <div id="cost-estimation-display" class="text-xs text-gray-400 mt-1 pl-1">Input Tokens: 0, Est. Cost: $0.000000 (Note: This is an estimate)</div>
             <!-- The div that previously held Prompt and Idea buttons is removed by not including it here -->
-            <div class="flex space-x-2 mt-4">
+            <div class="flex space-x-2 mt-2">
                 <button id="regen-title-button" class="bg-gray-700 px-3 py-1 rounded">Regen Title</button>
                 <!-- <button class="bg-gray-700 px-3 py-1 rounded">Download Chat</button> -->
                 <button id="clone-chat-button" class="bg-gray-700 px-3 py-1 rounded">Clone Chat</button>
@@ -609,14 +609,14 @@
                     const textarea = document.createElement('textarea');
                     // When editing, we should edit the raw Markdown source, not the rendered HTML's textContent
                     textarea.value = msg.content; // Assuming msg.content holds the raw markdown
-                    textarea.classList.add('w-full', 'bg-gray-800', 'p-2', 'rounded', 'text-white', 'border', 'border-gray-600', 'focus:border-blue-500', 'focus:ring-1', 'focus:ring-blue-500');
-                    textarea.rows = 3; // Initial rows, can grow
-                    // Add a style to allow textarea to grow
-                    textarea.style.minHeight = '6rem'; // equivalent to rows="3" roughly
+                    textarea.classList.add('w-full', 'bg-gray-800', 'p-2', 'rounded', 'text-white', 'text-sm', 'border', 'border-gray-600', 'focus:border-blue-500', 'focus:ring-1', 'focus:ring-blue-500');
                     textarea.style.resize = 'vertical'; // Allow vertical resize by user if browser supports
+                    const minHeightPx = 40; // Approx 2 lines with padding
+                    textarea.style.minHeight = `${minHeightPx}px`;
+
                     textarea.addEventListener('input', function () {
                         this.style.height = 'auto';
-                        this.style.height = (this.scrollHeight) + 'px';
+                        this.style.height = Math.max(this.scrollHeight, minHeightPx) + 'px';
                     });
 
 
@@ -858,6 +858,10 @@
                     // footerDiv contains iconsDiv, which is also hidden.
                     // So, insert before footerDiv.
                     messageDiv.insertBefore(editingInterfaceDiv, footerDiv);
+
+                    // Initial height adjustment AFTER textarea is in the DOM
+                    textarea.style.height = 'auto';
+                    textarea.style.height = Math.max(textarea.scrollHeight, minHeightPx) + 'px';
                 });
 
                 const deleteButton = document.createElement('button');
