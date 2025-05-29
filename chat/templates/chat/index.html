@@ -97,9 +97,12 @@
             </button>
         </div>
 
+        <!-- Search Bar -->
+        <input type="text" id="sidebar-search" placeholder="Search chats & folders..." class="w-full bg-gray-700 text-white p-2 rounded mb-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+
         <div class="flex-1 overflow-y-auto"> <!-- Added overflow-y-auto for scrollable chat list -->
             <!-- Folder Dropdown -->
-            <details class="group" open>
+            <details class="group" id="main-folders-details" open>
                 <summary class="text-sm font-bold text-gray-400 mt-4 mb-2 px-2 cursor-pointer list-none flex items-center justify-between">
                     <span class="unselectable"><!-- <span class="group-open:rotate-90 inline-block mr-1 transition-transform duration-150 transform">▶</span>--> Folders</span>
                 </summary>
@@ -2627,6 +2630,121 @@
             }
             // --- End of Idea Modal JavaScript ---
 
+            // --- Sidebar Search Functionality ---
+            const searchInput = document.getElementById('sidebar-search');
+            // const allChatItems = document.querySelectorAll('.chat-item'); // Already defined above, re-use
+            const namedFolderDetailsElements = document.querySelectorAll('details.folder-item-container');
+            const mainFoldersDetails = document.getElementById('main-folders-details');
+            
+            // Find "Other Chats" details element more robustly
+            let otherChatsDetails = null;
+            const allDetailsElements = document.querySelectorAll('aside .flex-1 details.group');
+            allDetailsElements.forEach(detailsEl => {
+                const summaryText = detailsEl.querySelector('summary')?.textContent.trim();
+                if (summaryText && summaryText.includes("Other Chats")) {
+                    otherChatsDetails = detailsEl;
+                }
+            });
+
+            if (searchInput) {
+                searchInput.addEventListener('input', function() {
+                    const searchTerm = this.value.toLowerCase().trim();
+
+                    // Filter chat items
+                    chatItems.forEach(chatItem => {
+                        const chatTitle = (chatItem.dataset.chatFullTitle || chatItem.querySelector('.chat-link')?.textContent || '').toLowerCase();
+                        if (chatTitle.includes(searchTerm)) {
+                            chatItem.style.display = '';
+                        } else {
+                            chatItem.style.display = 'none';
+                        }
+                    });
+
+                    // Filter named folders
+                    let anyNamedFolderVisible = false;
+                    namedFolderDetailsElements.forEach(folderDetails => {
+                        const folderNameSpan = folderDetails.querySelector('.folder-name-display');
+                        const folderName = (folderNameSpan?.textContent || '').toLowerCase();
+                        let hasVisibleChat = false;
+                        folderDetails.querySelectorAll('.chat-item').forEach(chatInFolder => {
+                            if (chatInFolder.style.display !== 'none') {
+                                hasVisibleChat = true;
+                            }
+                        });
+
+                        if (folderName.includes(searchTerm) || hasVisibleChat) {
+                            folderDetails.style.display = '';
+                            folderDetails.open = true;
+                            anyNamedFolderVisible = true;
+                        } else {
+                            folderDetails.style.display = 'none';
+                        }
+                    });
+
+                    // Filter "Other Chats" section
+                    let otherChatsSectionVisible = false;
+                    if (otherChatsDetails) {
+                        const otherChatsTitle = (otherChatsDetails.querySelector('summary')?.textContent || '').toLowerCase();
+                        let hasVisibleChatInOther = false;
+                        otherChatsDetails.querySelectorAll('.chat-item').forEach(chatInOther => {
+                            if (chatInOther.style.display !== 'none') {
+                                hasVisibleChatInOther = true;
+                            }
+                        });
+
+                        if (otherChatsTitle.includes(searchTerm) || hasVisibleChatInOther) {
+                            otherChatsDetails.style.display = '';
+                            otherChatsDetails.open = true;
+                            otherChatsSectionVisible = true;
+                        } else {
+                            otherChatsDetails.style.display = 'none';
+                        }
+                    }
+                    
+                    // Filter main "Folders" details section
+                    if (mainFoldersDetails) {
+                        const mainFoldersTitle = (mainFoldersDetails.querySelector('summary > span.unselectable')?.textContent || '').toLowerCase();
+                        if (mainFoldersTitle.includes(searchTerm) || anyNamedFolderVisible || (otherChatsDetails && otherChatsDetails.style.display !== 'none' && searchTerm === '')) { // Show if title matches, or any sub-folder is visible, or if search is empty and other chats was visible
+                             mainFoldersDetails.style.display = '';
+                             mainFoldersDetails.open = true;
+                        } else if (!anyNamedFolderVisible && !(otherChatsDetails && otherChatsDetails.style.display !== 'none')) {
+                             mainFoldersDetails.style.display = 'none';
+                        }
+                         // If search term is empty, ensure main folders section is visible if it has content
+                        if (searchTerm === '') {
+                            mainFoldersDetails.style.display = '';
+                            // Restore open state for named folders if they were originally open and not empty
+                            namedFolderDetailsElements.forEach(folder => {
+                                const originallyOpen = folder.hasAttribute('data-originally-open'); // Need to set this attribute initially if we want to restore
+                                const isEmpty = folder.querySelector('.chat-item') === null && folder.querySelector('p.text-xs.text-gray-500') !== null;
+                                if (originallyOpen && !isEmpty) { // A more robust check for "originally open" would be needed
+                                    // folder.open = true; // For now, just ensure it's visible
+                                }
+                            });
+                            if (otherChatsDetails) {
+                                // otherChatsDetails.open = true; // Similar logic for "Other Chats"
+                            }
+                        }
+                    }
+                     // If search term is empty, reset all to visible and default open states
+                    if (searchTerm === '') {
+                        chatItems.forEach(item => item.style.display = '');
+                        namedFolderDetailsElements.forEach(folder => {
+                            folder.style.display = '';
+                            // folder.open = folder.hasAttribute('data-originally-open'); // Or some default
+                        });
+                        if (otherChatsDetails) {
+                            otherChatsDetails.style.display = '';
+                            // otherChatsDetails.open = true; // Default open
+                        }
+                        if (mainFoldersDetails) {
+                            mainFoldersDetails.style.display = '';
+                            mainFoldersDetails.open = true; // Default open
+                        }
+                    }
+                });
+            }
+            // --- End of Sidebar Search Functionality ---
         });
     </script>
     {% endblock %}
