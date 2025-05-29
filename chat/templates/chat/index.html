@@ -551,16 +551,143 @@
                         });
                     });
 
-                    const generateButton = document.createElement('button');
-                    generateButton.textContent = 'Generate';
-                    generateButton.classList.add('bg-green-500', 'hover:bg-green-600', 'text-white', 'px-3', 'py-1', 'rounded', 'text-sm');
-                    generateButton.addEventListener('click', function() {
-                        console.log(`Generate clicked for message ID: ${messageId}`);
-                        // Placeholder for future functionality
+                    const generateButtonInEditMenu = document.createElement('button');
+                    generateButtonInEditMenu.textContent = 'Generate';
+                    generateButtonInEditMenu.classList.add('bg-green-500', 'hover:bg-green-600', 'text-white', 'px-3', 'py-1', 'rounded', 'text-sm');
+                    
+                    generateButtonInEditMenu.addEventListener('click', function() {
+                        const editedMessageId = messageId; // from outer scope of editButton listener
+                        const newText = textarea.value; // Content from the textarea in edit UI
+
+                        if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+                            alert('WebSocket is not connected. Please try selecting the chat again or refresh.');
+                            return;
+                        }
+                        const selectedModelId = chatModelSelectEl.value;
+                        if (!selectedModelId) {
+                            alert('Please select an AI model.');
+                            return;
+                        }
+
+                        // Step 1: Save the content first (similar to saveEditButton)
+                        fetch(`/api/chat/${currentChatId}/message/${editedMessageId}/update_content/`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': '{{ csrf_token }}'
+                            },
+                            body: JSON.stringify({ new_content: newText })
+                        })
+                        .then(response => {
+                            if (!response.ok) {
+                                return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                            }
+                            return response.json();
+                        })
+                        .then(saveData => {
+                            // Content saved successfully
+                            msg.content = newText; // Update local msg object's content
+                            contentP.innerHTML = marked.parse(newText, { breaks: false, gfm: true });
+                            contentP.dataset.rawContent = newText;
+
+                            // Restore UI from editing mode
+                            editingInterfaceDiv.remove();
+                            contentP.style.display = '';
+                            iconsDiv.style.display = 'flex';
+
+                            // Now proceed with generation logic
+                            const hasChildren = msg.children && msg.children.length > 0;
+
+                            if (!hasChildren) {
+                                // Scenario 3: No children - Generate reply to this edited message
+                                console.log(`Generate reply to message ID: ${editedMessageId}`);
+                                chatSocket.send(JSON.stringify({
+                                    type: 'generate_reply_to_message',
+                                    parent_message_id: editedMessageId,
+                                    model_id: selectedModelId
+                                }));
+                                // UI locking will be handled by lock_sidebar message from consumer
+                            } else {
+                                // Scenario 4: Has children - Create new sibling for active child and generate into it
+                                let sourceMessageForSiblingId = msg.active_child_id;
+                                if (!sourceMessageForSiblingId && msg.children && msg.children.length > 0) {
+                                    // Fallback: if no active_child_id is set, but children exist,
+                                    // use the first child as the source for creating a sibling.
+                                    // This assumes children are ordered, e.g., by creation date.
+                                    // The backend's get_chat_details_api orders children by created_at.
+                                    console.warn("No active_child_id, using first child to create sibling for.");
+                                    sourceMessageForSiblingId = msg.children[0].id; 
+                                }
+
+                                if (!sourceMessageForSiblingId) {
+                                    alert("Error: Cannot determine the message to create a sibling for.");
+                                    unlockGlobalUIAfterGenerationEnd(); // Ensure UI is not stuck locked
+                                    return;
+                                }
+                                
+                                console.log(`Create sibling for message ID: ${sourceMessageForSiblingId} (child of ${editedMessageId}) and generate into new sibling.`);
+                                fetch(`/api/chat/${currentChatId}/message/${sourceMessageForSiblingId}/add_sibling/`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'X-CSRFToken': '{{ csrf_token }}'
+                                    }
+                                })
+                                .then(response => response.json())
+                                .then(siblingData => {
+                                    if (siblingData.status === 'success' && siblingData.new_message_id) {
+                                        const newSiblingId = siblingData.new_message_id;
+
+                                        // Refresh chat display to show the new empty sibling
+                                        const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                                        if (activeChatListItem) {
+                                            activeChatListItem.click(); // This re-fetches and re-renders
+                                        } else if (currentChatId) { // Fallback
+                                            const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                                            if (targetChatLink) targetChatLink.closest('.chat-item')?.click();
+                                        }
+                                        
+                                        // Wait for DOM update after re-render
+                                        setTimeout(() => {
+                                            const newSiblingElementProse = chatMessagesContainerEl.querySelector(`[data-message-id="${newSiblingId}"] .prose`);
+                                            if (newSiblingElementProse) {
+                                                currentAssistantMessageId = newSiblingId;
+                                                currentAssistantMessageContentEl = newSiblingElementProse;
+                                                currentAssistantMessageContentEl.dataset.rawContent = ""; // Ensure it's empty
+                                                currentAssistantMessageContentEl.innerHTML = "";
+                                                
+                                                chatSocket.send(JSON.stringify({
+                                                    type: 'generate_into_empty_message',
+                                                    target_message_id: newSiblingId,
+                                                    model_id: selectedModelId
+                                                }));
+                                            } else {
+                                                console.error("Could not find new sibling element .prose in DOM after refresh for generation.");
+                                                alert("Error preparing for generation. UI might be out of sync.");
+                                                unlockGlobalUIAfterGenerationEnd(); // Unlock UI
+                                            }
+                                        }, 300); // Adjusted timeout, might need tuning
+                                    } else {
+                                        alert('Error creating sibling message: ' + (siblingData.error || 'Unknown error'));
+                                        unlockGlobalUIAfterGenerationEnd(); // Unlock UI
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Error in add_sibling_message_api call:', error);
+                                    alert('Error setting up sibling for generation: ' + error.message);
+                                    unlockGlobalUIAfterGenerationEnd(); // Unlock UI
+                                });
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error updating message content before generation:', error);
+                            alert('Error saving message before generation: ' + error.message);
+                            // No need to call unlockGlobalUIAfterGenerationEnd here as generation hasn't started
+                        });
                     });
 
                     editControlsDiv.appendChild(saveEditButton);
-                    editControlsDiv.appendChild(generateButton);
+                    editControlsDiv.appendChild(generateButtonInEditMenu);
 
                     editingInterfaceDiv.appendChild(textarea);
                     editingInterfaceDiv.appendChild(editControlsDiv);
@@ -793,7 +920,7 @@
                 // Navigation Arrows for active siblings
                 if (msg.is_active_sibling) {
                     const navArrowsDiv = document.createElement('div');
-                    navArrowsDiv.classList.add('absolute', 'bottom-0', 'left-0', 'flex', 'space-x-1', 'items-center', 'h-5'); // Centered vertically with h-5
+                    navArrowsDiv.classList.add('absolute', 'bottom-0', 'left-0', 'flex', 'space-x-1', 'items-center', 'h-5', 'message-sibling-nav'); // Added 'message-sibling-nav' class
 
                     const createArrowButton = (text, targetSiblingId, parentMsgId) => {
                         const arrowButton = document.createElement('button');
@@ -1711,25 +1838,95 @@
             // Regenerate Title button functionality
             const regenTitleButton = document.getElementById('regen-title-button');
 
-            // Functions to lock/unlock sidebar
-            function lockSidebar() {
+            // Helper functions for global UI lock/unlock during generation
+            function setSiblingNavigationLock(isLocked) {
+                const arrowButtons = document.querySelectorAll('.message-sibling-nav button'); // Use the new class
+                arrowButtons.forEach(btn => {
+                    btn.disabled = isLocked;
+                    btn.style.opacity = isLocked ? '0.5' : '1';
+                    // Optionally, more styling to indicate disabled state
+                });
+            }
+
+            function setGlobalEditControlsLock(isLocked) {
+                // Disable/enable all "Edit" (✏️) buttons on messages
+                const allEditButtons = chatMessagesContainerEl.querySelectorAll('button[title="Edit"]');
+                allEditButtons.forEach(btn => {
+                    btn.disabled = isLocked;
+                    btn.style.opacity = isLocked ? '0.5' : '1';
+                });
+
+                // For any currently open edit interface, disable/enable its "Save" and "Generate" buttons
+                const openEditInterfaces = chatMessagesContainerEl.querySelectorAll('.editing-interface');
+                openEditInterfaces.forEach(editInterface => {
+                    const saveBtn = editInterface.querySelector('button.bg-blue-500'); // Save button
+                    const genBtn = editInterface.querySelector('button.bg-green-500');  // Generate button in edit menu
+                    if (saveBtn) {
+                        saveBtn.disabled = isLocked;
+                        saveBtn.style.opacity = isLocked ? '0.5' : '1';
+                    }
+                    if (genBtn) {
+                        genBtn.disabled = isLocked;
+                        genBtn.style.opacity = isLocked ? '0.5' : '1';
+                    }
+                });
+            }
+            
+            // Unified UI locking for generation start (called by 'lock_sidebar' WebSocket message)
+            function lockGlobalUIAfterGenerationStart() {
                 const sidebar = document.querySelector('aside');
                 if (sidebar) {
                     sidebar.classList.add('sidebar-locked');
-                    console.log('Sidebar locked');
                 }
+                if (messageInputTextarea) messageInputTextarea.disabled = true;
+                if (generateButton) { // Main generate button
+                    generateButton.disabled = true;
+                    generateButton.textContent = 'Generating...';
+                }
+                if (cancelGenerationButton) { // Main cancel button
+                    cancelGenerationButton.classList.remove('hidden');
+                    cancelGenerationButton.disabled = false;
+                    cancelGenerationButton.textContent = 'Cancel';
+                }
+                setSiblingNavigationLock(true);
+                setGlobalEditControlsLock(true);
+                console.log('Global UI locked for generation.');
             }
 
-            function unlockSidebar() {
+            // Unified UI unlocking (called by 'unlock_sidebar' WebSocket message)
+            function unlockGlobalUIAfterGenerationEnd() {
                 const sidebar = document.querySelector('aside');
                 if (sidebar) {
                     sidebar.classList.remove('sidebar-locked');
-                    console.log('Sidebar unlocked');
                 }
+                if (messageInputTextarea) messageInputTextarea.disabled = false;
+                if (generateButton) { // Main generate button
+                    generateButton.disabled = false;
+                    generateButton.textContent = 'Generate';
+                }
+                if (cancelGenerationButton) { // Main cancel button
+                    cancelGenerationButton.classList.add('hidden');
+                    // cancelGenerationButton.disabled = true; // It's hidden, so disable state less critical until shown
+                    cancelGenerationButton.textContent = 'Cancel'; // Reset text
+                }
+                setSiblingNavigationLock(false);
+                setGlobalEditControlsLock(false);
+                
+                // Reset these critical state variables after generation attempt
+                currentAssistantMessageId = null;
+                currentAssistantMessageContentEl = null;
+                console.log('Global UI unlocked.');
             }
-            // Example usage (you would call these from your AI task logic):
-            // lockSidebar(); 
-            // setTimeout(unlockSidebar, 5000); // Unlock after 5 seconds for testing
+
+            // Existing lockSidebar and unlockSidebar functions are now wrappers
+            // These are called by WebSocket messages 'lock_sidebar' and 'unlock_sidebar'
+            function lockSidebar() { 
+                lockGlobalUIAfterGenerationStart();
+            }
+
+            function unlockSidebar() { 
+                unlockGlobalUIAfterGenerationEnd();
+            }
 
             if (regenTitleButton) {
                 regenTitleButton.addEventListener('click', function() {

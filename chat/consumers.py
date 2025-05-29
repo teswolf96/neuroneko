@@ -130,7 +130,18 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                 self.cancel_stream_flag.clear() # Reset flag for new stream
                 # Launch as a background task
                 self.current_stream_task = asyncio.create_task(self.handle_start_generation(data))
-            
+            elif message_type == 'generate_reply_to_message':
+                if self.current_stream_task and not self.current_stream_task.done():
+                    await self.send_error_to_client("A generation is already in progress.")
+                    return
+                self.cancel_stream_flag.clear()
+                self.current_stream_task = asyncio.create_task(self.handle_generate_reply_to_message(data))
+            elif message_type == 'generate_into_empty_message':
+                if self.current_stream_task and not self.current_stream_task.done():
+                    await self.send_error_to_client("A generation is already in progress.")
+                    return
+                self.cancel_stream_flag.clear()
+                self.current_stream_task = asyncio.create_task(self.handle_generate_into_empty_message(data))
             elif message_type == 'cancel_generation':
                 if self.current_stream_task and not self.current_stream_task.done():
                     self.cancel_stream_flag.set()
@@ -336,6 +347,212 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
             if self.current_stream_task is asyncio.current_task(): # Check if it's this task
                  self.current_stream_task = None
 
+    async def handle_generate_reply_to_message(self, data):
+        try:
+            parent_message_id = data.get('parent_message_id')
+            model_id = data.get('model_id')
+
+            if not parent_message_id or not model_id:
+                await self.send_error_to_client("Missing parent message ID or model ID.")
+                return
+
+            chat = await database_sync_to_async(Chat.objects.select_related('user', 'ai_model_used__endpoint', 'root_message').get)(id=self.chat_id, user=self.user)
+            ai_model_instance = await database_sync_to_async(AIModel.objects.select_related('endpoint').get)(id=model_id, endpoint__user=self.user)
+            user_settings = await database_sync_to_async(UserSettings.objects.get)(user=self.user)
+            
+            temperature = chat.ai_temperatue if chat.ai_temperatue is not None else user_settings.default_temp
+            max_tokens = ai_model_instance.default_max_tokens
+
+            parent_message = await database_sync_to_async(Message.objects.get)(id=parent_message_id, chat=chat)
+
+            # Create Blank Assistant Message
+            assistant_msg_obj = await database_sync_to_async(Message.objects.create)(
+                chat=chat,
+                message="", 
+                role='assistant',
+                parent=parent_message
+            )
+            await database_sync_to_async(self.set_as_active_child)(parent_message, assistant_msg_obj)
+            
+            await self.send_to_client({
+                'type': 'assistant_message_placeholder_created',
+                'message_id': assistant_msg_obj.id,
+                'role': assistant_msg_obj.role,
+                'parent_id': parent_message.id
+            })
+
+            await self.send_to_client({'type': 'lock_sidebar'})
+
+            api_messages = await self.get_formatted_message_history(chat, parent_message) # History up to the parent
+
+            accumulated_content = ""
+            async def on_chunk(chunk_data):
+                nonlocal accumulated_content
+                if self.cancel_stream_flag.is_set():
+                    assistant_msg_obj.message = accumulated_content
+                    await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
+                    await self.send_to_client({'type': 'stream_cancelled', 'assistant_message_id': assistant_msg_obj.id})
+                    await self.send_to_client({'type': 'unlock_sidebar'})
+                    return False
+
+                chunk_type = chunk_data.get("type")
+                if chunk_data.get("error"):
+                    error_detail = chunk_data.get("detail", "Unknown API error during stream.")
+                    assistant_msg_obj.message = f"Error: {error_detail}"
+                    await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
+                    await self.send_error_to_client(f"API Error: {error_detail}", assistant_msg_obj.id)
+                    await self.send_to_client({'type': 'unlock_sidebar'})
+                    return False
+
+                if chunk_type == "content_block_delta":
+                    delta_text = chunk_data.get("delta", {}).get("text", "")
+                    if delta_text:
+                        accumulated_content += delta_text
+                        await self.send_to_client({
+                            'type': 'stream_chunk',
+                            'assistant_message_id': assistant_msg_obj.id,
+                            'text_delta': delta_text
+                        })
+                elif chunk_type == "message_stop" or \
+                     (chunk_type == "message_delta" and chunk_data.get("delta", {}).get("stop_reason")):
+                    assistant_msg_obj.message = accumulated_content
+                    await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
+                    stop_reason = chunk_data.get("delta", {}).get("stop_reason") if chunk_type == "message_delta" else None
+                    await self.send_to_client({
+                        'type': 'stream_end',
+                        'assistant_message_id': assistant_msg_obj.id,
+                        'full_content': accumulated_content,
+                        'stop_reason': stop_reason
+                    })
+                    await self.send_to_client({'type': 'unlock_sidebar'})
+                    return False
+                return True
+
+            await stream_completion(
+                ai_model_id=ai_model_instance.model_id,
+                api_base_url=ai_model_instance.endpoint.url,
+                api_key=ai_model_instance.endpoint.apikey,
+                messages=api_messages,
+                on_chunk_callback=on_chunk,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+
+        except Message.DoesNotExist:
+            await self.send_error_to_client("Parent message not found.")
+        except AIModel.DoesNotExist:
+            await self.send_error_to_client("Selected AI Model not found or not accessible.")
+        except Chat.DoesNotExist:
+            await self.send_error_to_client("Chat session not found.")
+        except UserSettings.DoesNotExist:
+            await self.send_error_to_client("User settings not found.")
+        except Exception as e:
+            print(f"Error in handle_generate_reply_to_message: {type(e).__name__} {e}")
+            await self.send_error_to_client(f"Server error during generation: {str(e)}")
+            await self.send_to_client({'type': 'unlock_sidebar'})
+        finally:
+            if self.current_stream_task is asyncio.current_task():
+                 self.current_stream_task = None
+
+    async def handle_generate_into_empty_message(self, data):
+        try:
+            target_message_id = data.get('target_message_id')
+            model_id = data.get('model_id')
+
+            if not target_message_id or not model_id:
+                await self.send_error_to_client("Missing target message ID or model ID.")
+                return
+
+            chat = await database_sync_to_async(Chat.objects.select_related('user', 'ai_model_used__endpoint', 'root_message').get)(id=self.chat_id, user=self.user)
+            ai_model_instance = await database_sync_to_async(AIModel.objects.select_related('endpoint').get)(id=model_id, endpoint__user=self.user)
+            user_settings = await database_sync_to_async(UserSettings.objects.get)(user=self.user)
+
+            temperature = chat.ai_temperatue if chat.ai_temperatue is not None else user_settings.default_temp
+            max_tokens = ai_model_instance.default_max_tokens
+
+            target_message = await database_sync_to_async(Message.objects.select_related('parent').get)(id=target_message_id, chat=chat)
+            if target_message.message != "": # Ensure it's empty or handle as an error/overwrite
+                # For now, we'll proceed, assuming it's meant to be overwritten if not empty.
+                # Or, send an error: await self.send_error_to_client("Target message is not empty.") return
+                pass
+            
+            if not target_message.parent:
+                await self.send_error_to_client("Target message for generation cannot be a root message.")
+                return
+
+            await self.send_to_client({'type': 'lock_sidebar'})
+            
+            # History up to the parent of the target message
+            api_messages = await self.get_formatted_message_history(chat, target_message.parent) 
+
+            accumulated_content = ""
+            async def on_chunk(chunk_data):
+                nonlocal accumulated_content
+                if self.cancel_stream_flag.is_set():
+                    target_message.message = accumulated_content
+                    await database_sync_to_async(target_message.save)(update_fields=['message'])
+                    await self.send_to_client({'type': 'stream_cancelled', 'assistant_message_id': target_message.id})
+                    await self.send_to_client({'type': 'unlock_sidebar'})
+                    return False
+
+                chunk_type = chunk_data.get("type")
+                if chunk_data.get("error"):
+                    error_detail = chunk_data.get("detail", "Unknown API error during stream.")
+                    target_message.message = f"Error: {error_detail}"
+                    await database_sync_to_async(target_message.save)(update_fields=['message'])
+                    await self.send_error_to_client(f"API Error: {error_detail}", target_message.id)
+                    await self.send_to_client({'type': 'unlock_sidebar'})
+                    return False
+
+                if chunk_type == "content_block_delta":
+                    delta_text = chunk_data.get("delta", {}).get("text", "")
+                    if delta_text:
+                        accumulated_content += delta_text
+                        await self.send_to_client({
+                            'type': 'stream_chunk',
+                            'assistant_message_id': target_message.id, # Stream to the target message
+                            'text_delta': delta_text
+                        })
+                elif chunk_type == "message_stop" or \
+                     (chunk_type == "message_delta" and chunk_data.get("delta", {}).get("stop_reason")):
+                    target_message.message = accumulated_content
+                    await database_sync_to_async(target_message.save)(update_fields=['message'])
+                    stop_reason = chunk_data.get("delta", {}).get("stop_reason") if chunk_type == "message_delta" else None
+                    await self.send_to_client({
+                        'type': 'stream_end',
+                        'assistant_message_id': target_message.id,
+                        'full_content': accumulated_content,
+                        'stop_reason': stop_reason
+                    })
+                    await self.send_to_client({'type': 'unlock_sidebar'})
+                    return False
+                return True
+
+            await stream_completion(
+                ai_model_id=ai_model_instance.model_id,
+                api_base_url=ai_model_instance.endpoint.url,
+                api_key=ai_model_instance.endpoint.apikey,
+                messages=api_messages,
+                on_chunk_callback=on_chunk,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+
+        except Message.DoesNotExist:
+            await self.send_error_to_client("Target message or its parent not found.")
+        except AIModel.DoesNotExist:
+            await self.send_error_to_client("Selected AI Model not found or not accessible.")
+        except Chat.DoesNotExist:
+            await self.send_error_to_client("Chat session not found.")
+        except UserSettings.DoesNotExist:
+            await self.send_error_to_client("User settings not found.")
+        except Exception as e:
+            print(f"Error in handle_generate_into_empty_message: {type(e).__name__} {e}")
+            await self.send_error_to_client(f"Server error during generation: {str(e)}")
+            await self.send_to_client({'type': 'unlock_sidebar'})
+        finally:
+            if self.current_stream_task is asyncio.current_task():
+                 self.current_stream_task = None
 
     @database_sync_to_async
     def get_last_active_message(self, chat_obj: Chat) -> Message | None:
