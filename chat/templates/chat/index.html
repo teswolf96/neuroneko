@@ -22,6 +22,10 @@
             background-color: #2d3748 !important; /* gray-800, using important to override potential inline styles or more specific selectors */
             border: 2px dashed #718096; /* gray-500 */
         }
+        .sidebar-locked {
+            pointer-events: none; /* This makes the element and its children ignore mouse events */
+            opacity: 0.7;         /* Optional: visual feedback to indicate it's locked */
+        }
     </style>
     {% block extra_head %}{% endblock %}
 </head>
@@ -1478,12 +1482,35 @@
 
             // Regenerate Title button functionality
             const regenTitleButton = document.getElementById('regen-title-button');
+
+            // Functions to lock/unlock sidebar
+            function lockSidebar() {
+                const sidebar = document.querySelector('aside');
+                if (sidebar) {
+                    sidebar.classList.add('sidebar-locked');
+                    console.log('Sidebar locked');
+                }
+            }
+
+            function unlockSidebar() {
+                const sidebar = document.querySelector('aside');
+                if (sidebar) {
+                    sidebar.classList.remove('sidebar-locked');
+                    console.log('Sidebar unlocked');
+                }
+            }
+            // Example usage (you would call these from your AI task logic):
+            // lockSidebar(); 
+            // setTimeout(unlockSidebar, 5000); // Unlock after 5 seconds for testing
+
             if (regenTitleButton) {
                 regenTitleButton.addEventListener('click', function() {
                     if (!currentChatId) {
                         alert('Please select a chat first to regenerate its title.');
                         return;
                     }
+
+                    lockSidebar(); // Lock the sidebar
 
                     // Add some visual feedback that it's working
                     this.textContent = 'Regenerating...';
@@ -1498,8 +1525,6 @@
                         // No body needed for this request as per plan
                     })
                     .then(response => {
-                        this.textContent = 'Regen Title'; // Reset button text
-                        this.disabled = false; // Re-enable button
                         if (!response.ok) {
                             return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
                         }
@@ -1525,10 +1550,13 @@
                         }
                     })
                     .catch(error => {
-                        this.textContent = 'Regen Title'; // Reset button text on error
-                        this.disabled = false; // Re-enable button on error
                         console.error('Error regenerating chat title:', error);
                         alert('Error regenerating title: ' + error.message);
+                    })
+                    .finally(() => {
+                        this.textContent = 'Regen Title'; // Reset button text
+                        this.disabled = false; // Re-enable button
+                        unlockSidebar(); // Unlock the sidebar regardless of success or failure
                     });
                 });
             }
