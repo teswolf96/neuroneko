@@ -5,6 +5,7 @@
 <head>
     <meta charset="UTF-8">
     <title>{% block title %}Best GPT Interface{% endblock %}</title>
+    <link rel="icon" href="{% static 'favicon.ico' %}">
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
         .unselectable {
@@ -351,7 +352,7 @@
 
                 chatSocket.onmessage = function(e) {
                     const data = JSON.parse(e.data);
-                    console.log("WebSocket message received:", data);
+                    // console.log("WebSocket message received:", data);
 
                     switch (data.type) {
                         case 'user_message_created':
@@ -1327,7 +1328,7 @@
                             return response.json();
                         })
                         .then(data => {
-                            console.log("Chat details:", data);
+                            // console.log("Chat details:", data);
                             // Set the selected model in the dropdown
                             if (data.ai_model_used_id) {
                                 chatModelSelectEl.value = data.ai_model_used_id;
@@ -2109,7 +2110,7 @@
                     return;
                 }
 
-                console.log("requestCostEstimation called. currentChatId:", currentChatId, "Socket State:", chatSocket ? chatSocket.readyState : "No socket", "Socket Open?", chatSocket ? (chatSocket.readyState === WebSocket.OPEN) : false);
+                // console.log("requestCostEstimation called. currentChatId:", currentChatId, "Socket State:", chatSocket ? chatSocket.readyState : "No socket", "Socket Open?", chatSocket ? (chatSocket.readyState === WebSocket.OPEN) : false);
 
 
                 if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN || !currentChatId) {
@@ -2119,7 +2120,7 @@
                 }
                 const currentInputContent = messageInputTextarea.value; // Get current text, do not trim
                 const selectedModelId = chatModelSelectEl.value;
-                console.log("Selected Model ID for cost estimation:", selectedModelId);
+                // console.log("Selected Model ID for cost estimation:", selectedModelId);
 
                 if (!selectedModelId) {
                     costEstimationDisplayEl.textContent = 'Select a model to estimate cost.';
@@ -2129,7 +2130,7 @@
                 
                 // Update UI immediately to indicate estimation is in progress
                 costEstimationDisplayEl.textContent = 'Estimating cost...';
-                console.log("Cost estimation: Sending request to WebSocket.");
+                // console.log("Cost estimation: Sending request to WebSocket.");
 
                 chatSocket.send(JSON.stringify({
                     type: 'estimate_cost',

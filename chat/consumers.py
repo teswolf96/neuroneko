@@ -678,11 +678,14 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
 
             messages_for_counter = [m for m in messages_for_counter if m.get("content") != ""]
 
-            token_count = await database_sync_to_async(count_anthropic_tokens)(
-                model = ai_model_instance,
-                messages_for_api=messages_for_counter,
-                system_prompt_for_api=final_system_prompt_str
-            )
+            if messages_for_counter != []:
+                token_count = await database_sync_to_async(count_anthropic_tokens)(
+                    model = ai_model_instance,
+                    messages_for_api=messages_for_counter,
+                    system_prompt_for_api=final_system_prompt_str
+                )
+            else:
+                token_count = 0
 
             estimated_cost_val = None
             if ai_model_instance.input_cost_per_million_tokens is not None:
