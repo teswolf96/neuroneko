@@ -647,7 +647,7 @@ def add_sibling_message_api(request, chat_id, source_message_id):
     with transaction.atomic():
         new_sibling = Message.objects.create(
             chat=source_message.chat,
-            message="New alternative message...", 
+            message="", 
             role=source_message.role, 
             parent=source_message.parent
         )

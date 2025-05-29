@@ -268,15 +268,20 @@
                             break;
                         case 'assistant_message_placeholder_created':
                             currentAssistantMessageId = data.message_id;
-                            const newAssistantMsg = {
-                                id: data.message_id,
-                                role: data.role,
-                                content: "", // Placeholder is empty
-                                parent_id: data.parent_id
-                            };
-                            // Find the message index. It's after the last user message.
-                            const messagesInUI = chatMessagesContainerEl.querySelectorAll('[data-message-id]');
-                            renderMessage(newAssistantMsg, chatMessagesContainerEl, true, messagesInUI.length, currentChatRootMessageId);
+                            // Check if the message element already exists
+                            let existingMsgDiv = chatMessagesContainerEl.querySelector(`[data-message-id="${currentAssistantMessageId}"]`);
+                            if (!existingMsgDiv) {
+                                // Only render if it doesn't exist
+                                const newAssistantMsg = {
+                                    id: data.message_id,
+                                    role: data.role,
+                                    content: "", // Placeholder is empty
+                                    parent_id: data.parent_id
+                                };
+                                const messagesInUI = chatMessagesContainerEl.querySelectorAll('[data-message-id]');
+                                renderMessage(newAssistantMsg, chatMessagesContainerEl, true, messagesInUI.length, currentChatRootMessageId);
+                            }
+                            // Now, query for the element (either pre-existing or newly rendered)
                             currentAssistantMessageContentEl = chatMessagesContainerEl.querySelector(`[data-message-id="${currentAssistantMessageId}"] .prose`);
                             chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
                             break;
