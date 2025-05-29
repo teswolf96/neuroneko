@@ -213,32 +213,33 @@
             <div id="chat-messages-container" class="flex-grow  bg-gray-750 max-w-5xl mx-auto px-4 py-2 rounded mb-4 space-y-2">
                 <p class="text-gray-500">Select a chat to view messages.</p> 
             </div>
-        </div>
 
-        <!-- Input Area -->
-        <div class="bg-gray-800 p-2 rounded mt-auto"> <!-- mt-auto to push to bottom -->
-            <div class="bg-gray-700 p-2 rounded flex items-start space-x-2">
-                <!-- <div class="bg-red-500 px-2 py-1 rounded">User</div> -->
-                <textarea id="message-input" class="w-full bg-gray-800 p-2 rounded text-white" rows="4" placeholder="Type a message..."></textarea>
-                <!-- Button column for Generate, Save, Prompt, Idea -->
-                <div class="flex flex-col space-y-1">
-                    <button class="bg-green-500 px-4 py-2 rounded w-full">Generate</button>
-                    <button class="bg-gray-600 px-4 py-2 rounded w-full">Save</button>
-                    <div class="flex space-x-1 mt-1">
-                        <button id="open-prompt-modal-button" class="bg-gray-600 px-3 py-1 rounded text-xs flex-grow">Prompt</button>
-                        <button id="open-idea-modal-button" class="bg-gray-600 px-3 py-1 rounded text-xs flex-grow">Idea</button>
+            <!-- Input Area -->
+            <div class="bg-gray-800 p-2 rounded mt-auto"> <!-- mt-auto to push to bottom -->
+                <div class="bg-gray-700 p-2 rounded flex items-start space-x-2">
+                    <!-- <div class="bg-red-500 px-2 py-1 rounded">User</div> -->
+                    <textarea id="message-input" class="w-full bg-gray-800 p-2 rounded text-white" rows="4" placeholder="Type a message..."></textarea>
+                    <!-- Button column for Generate, Save, Prompt, Idea -->
+                    <div class="flex flex-col space-y-1">
+                        <button class="bg-green-500 px-4 py-2 rounded w-full">Generate</button>
+                        <button class="bg-gray-600 px-4 py-2 rounded w-full">Save</button>
+                        <div class="flex space-x-1 mt-1">
+                            <button id="open-prompt-modal-button" class="bg-gray-600 px-3 py-1 rounded text-xs flex-grow">Prompt</button>
+                            <button id="open-idea-modal-button" class="bg-gray-600 px-3 py-1 rounded text-xs flex-grow">Idea</button>
+                        </div>
                     </div>
                 </div>
-            </div>
-            <div id="cost-estimation-display" class="text-xs text-gray-400 mt-1 pl-1">Input Tokens: 0, Est. Cost: $0.000000 (Note: This is an estimate)</div>
-            <!-- The div that previously held Prompt and Idea buttons is removed by not including it here -->
-            <div class="flex space-x-2 mt-2">
-                <button id="regen-title-button" class="bg-gray-700 px-3 py-1 rounded">Regen Title</button>
-                <!-- <button class="bg-gray-700 px-3 py-1 rounded">Download Chat</button> -->
-                <button id="clone-chat-button" class="bg-gray-700 px-3 py-1 rounded">Clone Chat</button>
-                <button id="continue-chat-button" class="bg-gray-700 px-3 py-1 rounded">Continue</button>
-            </div>
-        </div> <!-- Closing div for input area -->
+                <div id="cost-estimation-display" class="text-xs text-gray-400 mt-1 pl-1">Input Tokens: 0, Est. Cost: $0.000000 (Note: This is an estimate)</div>
+                <!-- The div that previously held Prompt and Idea buttons is removed by not including it here -->
+                <div class="flex space-x-2 mt-2">
+                    <button id="regen-title-button" class="bg-gray-700 px-3 py-1 rounded">Regen Title</button>
+                    <!-- <button class="bg-gray-700 px-3 py-1 rounded">Download Chat</button> -->
+                    <button id="clone-chat-button" class="bg-gray-700 px-3 py-1 rounded">Clone Chat</button>
+                    <button id="continue-chat-button" class="bg-gray-700 px-3 py-1 rounded">Continue</button>
+                </div>
+            </div> <!-- Closing div for input area -->
+                    </div>
+
         {% endblock %}
     </main>
 
@@ -532,7 +533,7 @@
                 });
 
                 const contentP = document.createElement('div'); // Changed to div to better accommodate block elements from Markdown
-                contentP.classList.add('text-sm', 'prose', 'prose-sm', 'prose-invert', 'max-w-none', 'whitespace-pre-line'); // Added prose classes and whitespace-pre-line
+                contentP.classList.add('text-lg', 'prose', 'prose-sm', 'prose-invert', 'max-w-none', 'whitespace-pre-line'); // Added prose classes and whitespace-pre-line
                 const rawContent = msg.content || ''; // Ensure rawContent is defined
                 contentP.textContent = rawContent; // Use textContent for plain text
                 contentP.dataset.rawContent = rawContent; // Store raw content for easier updates
