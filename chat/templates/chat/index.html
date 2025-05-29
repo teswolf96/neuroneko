@@ -176,7 +176,7 @@
                 <button id="regen-title-button" class="bg-gray-700 px-3 py-1 rounded">Regen Title</button>
                 <!-- <button class="bg-gray-700 px-3 py-1 rounded">Download Chat</button> -->
                 <button id="clone-chat-button" class="bg-gray-700 px-3 py-1 rounded">Clone Chat</button>
-                <button class="bg-gray-700 px-3 py-1 rounded">Continue</button>
+                <button id="continue-chat-button" class="bg-gray-700 px-3 py-1 rounded">Continue</button>
             </div>
         </div> <!-- Closing div for input area -->
         {% endblock %}
@@ -2025,6 +2025,83 @@
                     .catch(error => {
                         console.error('Error cloning chat:', error);
                         alert('Error cloning chat: ' + error.message);
+                    });
+                });
+            }
+
+            // Continue Chat button functionality
+            const continueChatButton = document.getElementById('continue-chat-button');
+            if (continueChatButton) {
+                continueChatButton.addEventListener('click', function() {
+                    if (!currentChatId) {
+                        alert('Please select a chat to continue.');
+                        return;
+                    }
+                    
+                    let originalTitle = currentActiveChatLi ? currentActiveChatLi.dataset.chatFullTitle : null;
+                    if (!originalTitle) {
+                        const activeChatItem = document.querySelector(`.chat-item[data-chat-id="${currentChatId}"]`);
+                        if (activeChatItem) {
+                             originalTitle = activeChatItem.dataset.chatFullTitle;
+                        }
+                        if (!originalTitle) {
+                            alert('Could not get current chat title to continue.');
+                            return;
+                        }
+                    }
+
+                    // Re-use the existing name generation logic from clone
+                    function generateNewChatName(currentTitle) {
+                        const match = currentTitle.match(/(.*?)(\s+(\d+))?$/);
+                        let baseName = currentTitle.trim(); 
+                        let number = 0;
+
+                        if (match) {
+                            let potentialBaseName = (match[1] || "").trim();
+                            if (match[3]) { 
+                                number = parseInt(match[3], 10);
+                                if (potentialBaseName === "") { 
+                                    baseName = "Chat"; 
+                                } else {
+                                    baseName = potentialBaseName;
+                                }
+                            } else { 
+                                baseName = currentTitle.trim();
+                                if (baseName === "") baseName = "Chat"; 
+                            }
+                        } else { 
+                            baseName = "Chat"; 
+                        }
+                        return `${baseName} ${number + 1}`;
+                    }
+                    const newChatName = generateNewChatName(originalTitle);
+
+                    fetch(`/api/chat/${currentChatId}/continue/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({ new_chat_name: newChatName })
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(err => { 
+                                throw new Error(err.error || `HTTP error ${response.status}`);
+                            });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.status === 'success') {
+                            window.location.reload(); // Reload to see the new chat
+                        } else {
+                            alert('Error continuing chat: ' + (data.error || 'Unknown server error.'));
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error continuing chat:', error);
+                        alert('Error continuing chat: ' + error.message);
                     });
                 });
             }

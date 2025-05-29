@@ -977,3 +977,95 @@ def clone_chat_api(request, chat_id):
         'new_chat_id': new_chat.id,
         'new_chat_title': new_chat.title
     })
+
+@login_required
+@require_POST
+@transaction.atomic # Ensure all or nothing for chat/message creation
+def continue_chat_api(request, chat_id):
+    original_chat = get_object_or_404(Chat, id=chat_id, user=request.user)
+    
+    try:
+        data = json.loads(request.body)
+        new_chat_name = data.get('new_chat_name', '').strip()
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'error': 'Invalid JSON.'}, status=400)
+
+    if not new_chat_name:
+        return JsonResponse({'status': 'error', 'error': 'New chat name cannot be empty.'}, status=400)
+
+    # 1. Get active messages from original_chat
+    active_messages_ordered = []
+    current_msg = original_chat.root_message
+    while current_msg:
+        active_messages_ordered.append(current_msg)
+        current_msg = current_msg.active_child
+    
+    if not active_messages_ordered:
+        return JsonResponse({'status': 'error', 'error': 'Original chat has no messages to continue from.'}, status=400)
+
+    # 2. Select messages to carry over
+    messages_to_copy_refs = []
+    if len(active_messages_ordered) > 0:
+        messages_to_copy_refs.append(active_messages_ordered[0]) # First message
+    
+    if len(active_messages_ordered) > 1:
+        # Add second message (it's distinct from the first if len > 1)
+        messages_to_copy_refs.append(active_messages_ordered[1]) 
+    
+    if len(active_messages_ordered) > 2:
+        # Add last message only if it's different from the first two already added
+        last_message_ref = active_messages_ordered[-1]
+        # Check if last_message_ref is already in messages_to_copy_refs by comparing objects (or IDs)
+        is_last_already_added = False
+        for msg_ref in messages_to_copy_refs:
+            if msg_ref.id == last_message_ref.id:
+                is_last_already_added = True
+                break
+        if not is_last_already_added:
+             messages_to_copy_refs.append(last_message_ref)
+    # If len is 1 or 2, the "last" message is already covered by the first/second appends.
+
+    # 3. Create the new chat
+    new_chat = Chat.objects.create(
+        user=request.user,
+        title=new_chat_name,
+        folder=original_chat.folder,
+        ai_model_used=original_chat.ai_model_used,
+        ai_temperatue=original_chat.ai_temperatue, # Typo is in the model field name
+        # root_message will be set after creating the first message
+    )
+
+    # 4. Create and link new messages
+    parent_for_next_new_message = None
+
+    for original_msg_ref in messages_to_copy_refs:
+        new_msg = Message.objects.create(
+            chat=new_chat,
+            message=original_msg_ref.message,
+            role=original_msg_ref.role,
+            parent=parent_for_next_new_message 
+            # created_at is auto_now_add
+        )
+        
+        if parent_for_next_new_message is None: # This is the first message being created for the new chat
+            new_chat.root_message = new_msg
+            # No need to save new_chat here, will be saved once at the end.
+        else: # This is a subsequent message for the new chat
+            parent_for_next_new_message.active_child = new_msg
+            parent_for_next_new_message.save(update_fields=['active_child']) # Save the previous new message to link it
+        
+        parent_for_next_new_message = new_msg # The current new_msg becomes parent for the next one in the new chat
+
+    new_chat.save() # Save new_chat, especially to persist root_message if set.
+
+    # 5. Update user's last active chat
+    user_settings, _ = UserSettings.objects.get_or_create(user=request.user)
+    user_settings.last_active_chat = new_chat
+    user_settings.save(update_fields=['last_active_chat'])
+
+    return JsonResponse({
+        'status': 'success',
+        'message': 'Chat continued successfully.',
+        'new_chat_id': new_chat.id,
+        'new_chat_title': new_chat.title
+    })
