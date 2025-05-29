@@ -805,8 +805,93 @@
                     });
                 });
 
+                const regenerateButton = document.createElement('button');
+                regenerateButton.innerHTML = '🔄'; // Unicode for Regenerate
+                regenerateButton.title = 'Regenerate';
+                regenerateButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none');
+                regenerateButton.addEventListener('click', function() {
+                    const currentMessageId = messageDiv.dataset.messageId;
+                    if (!currentChatId || !currentMessageId) {
+                        console.error('Chat ID or Current Message ID is missing for regenerate.');
+                        alert('Could not regenerate: Chat or Message ID missing.');
+                        return;
+                    }
+                    if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+                        alert('WebSocket is not connected. Please try selecting the chat again or refresh.');
+                        return;
+                    }
+                    const selectedModelId = chatModelSelectEl.value;
+                    if (!selectedModelId) {
+                        alert('Please select an AI model.');
+                        return;
+                    }
+
+                    // Lock UI before starting async operations
+                    lockGlobalUIAfterGenerationStart();
+
+                    // Step 1: Create a new sibling for the current message
+                    fetch(`/api/chat/${currentChatId}/message/${currentMessageId}/add_sibling/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        }
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                        }
+                        return response.json();
+                    })
+                    .then(siblingData => {
+                        if (siblingData.status === 'success' && siblingData.new_message_id) {
+                            const newlyCreatedSiblingId = siblingData.new_message_id;
+
+                            // Refresh chat display to show the new empty sibling
+                            const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                            if (activeChatListItem) {
+                                activeChatListItem.click(); // This re-fetches and re-renders
+                            } else if (currentChatId) { // Fallback
+                                const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                                if (targetChatLink) targetChatLink.closest('.chat-item')?.click();
+                            }
+                            
+                            // Wait for DOM update after re-render
+                            setTimeout(() => {
+                                const newSiblingElementProse = chatMessagesContainerEl.querySelector(`[data-message-id="${newlyCreatedSiblingId}"] .prose`);
+                                if (newSiblingElementProse) {
+                                    currentAssistantMessageId = newlyCreatedSiblingId;
+                                    currentAssistantMessageContentEl = newSiblingElementProse;
+                                    currentAssistantMessageContentEl.dataset.rawContent = ""; // Ensure it's empty
+                                    currentAssistantMessageContentEl.innerHTML = "";
+                                    
+                                    chatSocket.send(JSON.stringify({
+                                        type: 'generate_into_empty_message',
+                                        target_message_id: newlyCreatedSiblingId,
+                                        model_id: selectedModelId
+                                    }));
+                                    // UI locking is already active. WebSocket 'unlock_sidebar' will handle unlocking.
+                                } else {
+                                    console.error("Could not find new sibling element .prose in DOM after refresh for regeneration.");
+                                    alert("Error preparing for regeneration. UI might be out of sync.");
+                                    unlockGlobalUIAfterGenerationEnd(); // Unlock UI if we can't proceed
+                                }
+                            }, 300); // Adjusted timeout, might need tuning
+                        } else {
+                            alert('Error creating sibling message for regeneration: ' + (siblingData.error || 'Unknown error'));
+                            unlockGlobalUIAfterGenerationEnd(); // Unlock UI on error
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error in add_sibling_message_api call for regeneration:', error);
+                        alert('Error setting up for regeneration: ' + error.message);
+                        unlockGlobalUIAfterGenerationEnd(); // Unlock UI on error
+                    });
+                });
+
                 if (msg.id !== chatRootMessageId) {
-                    iconsDiv.appendChild(addSiblingButton); // Add new button first
+                    // addSiblingButton is now added to plusButtonDiv
+                    iconsDiv.appendChild(regenerateButton); // Add the regenerate button here
                 }
                 iconsDiv.appendChild(copyButton);
                 iconsDiv.appendChild(editButton);
@@ -866,13 +951,20 @@
                 // Plus Icon (bottom-center, conditional)
                 if (showPlusIcon) {
                     const plusButtonDiv = document.createElement('div');
-                    plusButtonDiv.classList.add('absolute', 'bottom-0', 'left-1/2', '-translate-x-1/2');
+                    plusButtonDiv.classList.add('absolute', 'bottom-0', 'left-1/2', '-translate-x-1/2', 'flex', 'items-center', 'space-x-1'); // Added flex, items-center, space-x-1
 
                     const plusButton = document.createElement('button');
                     plusButton.innerHTML = '➕'; // Unicode for Plus
                     plusButton.title = 'Add message below';
                     plusButton.classList.add('bg-gray-500', 'text-white', 'rounded-full', 'w-5', 'h-5', 'flex', 'items-center', 'justify-center', 'text-xs', 'hover:bg-gray-400', 'focus:outline-none');
                     plusButtonDiv.appendChild(plusButton);
+
+                    // Add the "Add Sibling" button next to the Plus button if it's not the root message
+                    // if (msg.id !== chatRootMessageId) {
+                        // addSiblingButton is defined earlier in the renderMessage function
+                        // plusButtonDiv.appendChild(addSiblingButton);
+                    // }
+
                     footerDiv.appendChild(plusButtonDiv);
 
                     // Event listener for the Plus button
