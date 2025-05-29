@@ -10,8 +10,8 @@ import json
 from django.contrib import messages
 from asgiref.sync import async_to_sync # Added for sync view calling async code
 
-from .models import Chat, Message, Folder, UserSettings, AIEndpoint, AIModel
-from .forms import UserSettingsForm, AIEndpointForm, AIModelForm
+from .models import Chat, Message, Folder, UserSettings, AIEndpoint, AIModel, SavedPrompt
+from .forms import UserSettingsForm, AIEndpointForm, AIModelForm, SavedPromptForm
 from .api_client import test_anthropic_endpoint, get_static_completion # New import
 
 
@@ -66,6 +66,62 @@ def user_settings_view(request):
     else:
         form = UserSettingsForm(instance=user_settings, user=request.user)
     return render(request, 'chat/user_settings.html', {'form': form})
+
+@login_required
+def manage_prompts_view(request):
+    if request.method == 'POST':
+        form = SavedPromptForm(request.POST, user=request.user)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Prompt saved successfully!')
+            return redirect('manage_prompts')
+        else:
+            # If form is invalid, re-render with errors
+            prompts = SavedPrompt.objects.filter(user=request.user)
+            context = {
+                'prompts': prompts,
+                'form': form  # Pass the invalid form back to the template
+            }
+            return render(request, 'chat/manage_prompts.html', context)
+    else:
+        form = SavedPromptForm(user=request.user) # For GET request, an empty form
+    
+    prompts = SavedPrompt.objects.filter(user=request.user)
+    context = {
+        'prompts': prompts,
+        'form': form
+    }
+    return render(request, 'chat/manage_prompts.html', context)
+
+@login_required
+def prompt_update_view(request, pk):
+    prompt = get_object_or_404(SavedPrompt, pk=pk, user=request.user)
+    if request.method == 'POST':
+        form = SavedPromptForm(request.POST, instance=prompt, user=request.user)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Prompt updated successfully!')
+            return redirect('manage_prompts')
+    else:
+        form = SavedPromptForm(instance=prompt, user=request.user)
+    
+    # This view will render a part of the manage_prompts.html or a specific form template
+    # For now, let's assume it reuses manage_prompts.html and we'll handle display there
+    # or create a simple separate template like 'prompt_form.html'
+    # To keep it simple, we can pass a flag or use a different template.
+    # Let's pass an 'update_form' to distinguish in the template, or redirect to a page with just this form.
+    # For now, rendering a dedicated simple form page might be cleaner.
+    return render(request, 'chat/prompt_form.html', {'form': form, 'prompt_instance': prompt})
+
+
+@login_required
+@require_POST # Ensure this view is only accessed via POST
+def prompt_delete_view(request, pk):
+    prompt = get_object_or_404(SavedPrompt, pk=pk, user=request.user)
+    prompt_name = prompt.name
+    prompt.delete()
+    messages.success(request, f"Prompt '{prompt_name}' deleted successfully.")
+    return redirect('manage_prompts')
 
 # API Endpoint Views
 @login_required

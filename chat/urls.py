@@ -7,6 +7,9 @@ urlpatterns = [
     path('login/', views.login_view, name='login'),
     path('logout/', views.logout_view, name='logout'),
     path('settings/', views.user_settings_view, name='user_settings'),
+    path('manage-prompts/', views.manage_prompts_view, name='manage_prompts'),
+    path('manage-prompts/update/<int:pk>/', views.prompt_update_view, name='prompt_update'),
+    path('manage-prompts/delete/<int:pk>/', views.prompt_delete_view, name='prompt_delete'),
     path('create_new_chat/', views.create_new_chat_view, name='create_new_chat'),
 
     # API Configuration URLs
