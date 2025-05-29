@@ -2,3 +2,4 @@ chat/__pycache__/*
 chat/migrations/*
 chat_project/__pycache__/*
 db.sqlite3
+.idea/*

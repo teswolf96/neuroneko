@@ -83,7 +83,7 @@ This project is a Django-based web application that provides a user interface fo
 
 6.  **Run the development server:**
     ```bash
-    python manage.py runserver
+    daphne -p 8000 chat_project.asgi:application
     ```
     The application will typically be available at `http://127.0.0.1:8000/`.
 
