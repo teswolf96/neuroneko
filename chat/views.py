@@ -233,7 +233,7 @@ def login_view(request):
             return redirect(request.POST.get('next') or 'index')
     else:
         form = AuthenticationForm()
-    return render(request, 'chat/login.html', {'form': form, 'next': request.GET.get('next', '')})
+    return render(request, 'login.html', {'form': form, 'next': request.GET.get('next', '')})
 
 @login_required
 def logout_view(request):

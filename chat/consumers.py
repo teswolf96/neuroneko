@@ -162,7 +162,7 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
             ai_model_instance = await database_sync_to_async(AIModel.objects.select_related('endpoint').get)(id=model_id, endpoint__user=self.user)
             user_settings = await database_sync_to_async(UserSettings.objects.get)(user=self.user)
             
-            temperature = ai_model_instance.default_temperature if ai_model_instance.default_temperature is not None else user_settings.default_temp
+            temperature = chat.ai_temperatue if chat.ai_temperatue is not None else user_settings.default_temp
             max_tokens = ai_model_instance.default_max_tokens # Assuming this field exists, or use a global default
 
             # 2. Save User Message

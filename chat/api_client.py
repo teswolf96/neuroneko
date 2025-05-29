@@ -3,6 +3,10 @@ import anthropic
 from anthropic import AsyncAnthropic
 import json
 from typing import Callable, Awaitable, Dict, Any, List
+import httpx
+http_client_without_ssl_verification = httpx.Client(verify=False)
+http_async_client_without_ssl_verification = httpx.AsyncClient(verify=False)
+
 
 # Define a type for the message structure, common in chat APIs
 ChatMessage = Dict[str, str]  # e.g., {"role": "user", "content": "Hello"}
@@ -17,7 +21,7 @@ def test_anthropic_endpoint(api_key: str, base_url: str) -> Dict[str, Any]:
         A dictionary with 'status', 'message', and 'details'.
     """
     try:
-        client = anthropic.Anthropic(api_key=api_key)
+        client = anthropic.Anthropic(api_key=api_key, http_client=http_client_without_ssl_verification)
         response = client.models.list(limit=20)
         return {
             "status": "success",
@@ -61,7 +65,7 @@ async def get_static_completion(
         The API response as a dictionary.
     """
     try:
-        client = anthropic.Anthropic(api_key=api_key, base_url=api_base_url if api_base_url else None)
+        client = anthropic.Anthropic(api_key=api_key, base_url=api_base_url if api_base_url else None, http_client=http_client_without_ssl_verification)
         
         # Prepare payload, system prompt can be passed via kwargs or extracted if needed
         payload = {
@@ -139,7 +143,8 @@ async def stream_completion(
         **kwargs: Additional parameters to pass to the API.
     """
     try:
-        client = AsyncAnthropic(api_key=api_key, base_url=api_base_url if api_base_url else None)
+        print(api_key)
+        client = AsyncAnthropic(api_key=api_key, base_url=api_base_url if api_base_url else None, http_client=http_async_client_without_ssl_verification)
         
         payload = {
             "model": ai_model_id,
