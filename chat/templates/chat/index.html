@@ -1807,7 +1807,7 @@
                                 })
                                 .then(data => {
                                     if (data.status === 'success') {
-                                        // chatLink.textContent = data.new_title.substring(0, 60) + (data.new_title.length > 60 ? '...' : '');
+                                        chatLink.textContent = data.new_title//.substring(0, 60) + (data.new_title.length > 60 ? '...' : '');
                                         chatItem.dataset.chatFullTitle = data.new_title; // Update the full title
                                         revertToDisplay();
                                     } else {
