@@ -34,6 +34,9 @@ class AIModel(models.Model):
     endpoint = models.ForeignKey(AIEndpoint, on_delete=models.CASCADE, related_name='models', help_text="The AI endpoint this model belongs to", null=True, blank=True)
     default_temperature = models.FloatField(null=True, blank=True, help_text="Default temperature for this model (e.g., 0.7)")
     default_max_tokens = models.IntegerField(null=True, blank=True, help_text="Default maximum tokens for this model (e.g., 2048)")
+    input_cost_per_million_tokens = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, help_text="Cost for 1 million input tokens (e.g., 1.50 for $1.50/1M tokens)")
+    output_cost_per_million_tokens = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, help_text="Cost for 1 million output tokens (e.g., 2.00 for $2.00/1M tokens)")
+    currency = models.CharField(max_length=3, default="USD", help_text="Currency of the cost (e.g., USD, EUR)")
 
     def __str__(self):
         return f"{self.name} ({self.endpoint.name})"
