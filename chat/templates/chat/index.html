@@ -226,6 +226,7 @@
                     </div>
                 </div>
             </div>
+            <div id="cost-estimation-display" class="text-xs text-gray-400 mt-1 pl-1">Input Tokens: 0, Est. Cost: $0.000000 (Note: This is an estimate)</div>
             <!-- The div that previously held Prompt and Idea buttons is removed by not including it here -->
             <div class="flex space-x-2 mt-4">
                 <button id="regen-title-button" class="bg-gray-700 px-3 py-1 rounded">Regen Title</button>
@@ -302,6 +303,7 @@
             let chatSocket = null;
             let currentAssistantMessageId = null; // Store ID of the assistant message being streamed into
             let currentAssistantMessageContentEl = null; // Store the content DOM element of the assistant message
+            const costEstimationDisplayEl = document.getElementById('cost-estimation-display');
 
             // Cancel button (initially hidden)
             const cancelGenerationButton = document.createElement('button');
@@ -338,6 +340,7 @@
 
                 chatSocket.onopen = function(e) {
                     console.log(`WebSocket connection opened for chat ${chatId}`);
+                    requestCostEstimation(); // Call here to ensure socket is open for initial estimation
                 };
 
                 chatSocket.onmessage = function(e) {
@@ -437,6 +440,11 @@
                         case 'info':
                             console.log("Server Info:", data.message);
                             // Could display this info somewhere if needed
+                            break;
+                        case 'cost_estimation_result':
+                            if (costEstimationDisplayEl) {
+                                costEstimationDisplayEl.textContent = `Input Tokens: ${data.token_count}, Est. Cost: $${data.estimated_cost} (Note: This is an estimate)`;
+                            }
                             break;
                     }
                 };
@@ -1334,6 +1342,7 @@
                             // Connect WebSocket for the newly selected/loaded chat
                             if (currentChatId) { // Ensure currentChatId is valid
                                 connectWebSocket(currentChatId);
+                                // requestCostEstimation(); // Moved to onopen for initial load
                             }
                         })
                         .catch(error => {
@@ -1867,6 +1876,7 @@
                                         if (chatModelSelectEl.options.length > 0) chatModelSelectEl.selectedIndex = 0; // Reset dropdown
                                         chatModelTempEl.textContent = 'N/A';
                                         // chatSystemPromptEl.textContent = 'No system prompt set.';
+                                        if (costEstimationDisplayEl) costEstimationDisplayEl.textContent = 'Input Tokens: 0, Est. Cost: $0.000000 (Note: This is an estimate)';
                                         currentChatId = null;
                                         currentActiveChatLi = null;
                                     }
@@ -2060,24 +2070,69 @@
                     })
                     .then(data => {
                         if (data.status === 'success') {
-                            // Optionally, provide user feedback (e.g., a small temporary notification)
                             console.log(`Chat model updated to ${data.new_model_name}`);
-                            // The UI (dropdown) already reflects the change.
-                            // If other parts of the UI depend on the model name directly (not just ID), they might need an update.
-                            // For now, the dropdown itself is the primary indicator.
+                            requestCostEstimation(); // Update cost estimation when model changes
                         } else {
                             alert('Error updating chat model: ' + (data.error || 'Unknown error'));
-                            // Optionally, revert the dropdown selection if the backend update fails.
-                            // This would require storing the previous value.
                         }
                     })
                     .catch(error => {
                         console.error('Error updating chat model:', error);
                         alert('Error updating chat model: ' + error.message);
-                        // Optionally, revert dropdown selection
                     });
                 });
             }
+
+            // Debounce function for input events
+            function debounce(func, delay) {
+                let timeout;
+                return function(...args) {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func.apply(this, args), delay);
+                };
+            }
+
+            // Function to request cost estimation
+            function requestCostEstimation() {
+                if (!costEstimationDisplayEl) {
+                    console.log("Cost estimation: Display element not found.");
+                    return;
+                }
+
+                console.log("requestCostEstimation called. currentChatId:", currentChatId, "Socket State:", chatSocket ? chatSocket.readyState : "No socket", "Socket Open?", chatSocket ? (chatSocket.readyState === WebSocket.OPEN) : false);
+
+
+                if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN || !currentChatId) {
+                    costEstimationDisplayEl.textContent = 'Estimating cost... (Waiting for connection or chat selection)';
+                    console.log("Cost estimation: Socket not ready or no currentChatId. Socket state:", chatSocket ? chatSocket.readyState : "N/A", "currentChatId:", currentChatId);
+                    return;
+                }
+                const currentInputContent = messageInputTextarea.value; // Get current text, do not trim
+                const selectedModelId = chatModelSelectEl.value;
+                console.log("Selected Model ID for cost estimation:", selectedModelId);
+
+                if (!selectedModelId) {
+                    costEstimationDisplayEl.textContent = 'Select a model to estimate cost.';
+                    console.log("Cost estimation: No model selected.");
+                    return;
+                }
+                
+                // Update UI immediately to indicate estimation is in progress
+                costEstimationDisplayEl.textContent = 'Estimating cost...';
+                console.log("Cost estimation: Sending request to WebSocket.");
+
+                chatSocket.send(JSON.stringify({
+                    type: 'estimate_cost',
+                    current_input_content: currentInputContent,
+                    model_id: selectedModelId
+                }));
+            }
+
+            // Attach debounced event listener to message input
+            if (messageInputTextarea) {
+                messageInputTextarea.addEventListener('input', debounce(requestCostEstimation, 750));
+            }
+
 
             // Regenerate Title button functionality
             const regenTitleButton = document.getElementById('regen-title-button');

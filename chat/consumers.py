@@ -8,6 +8,8 @@ from django.shortcuts import get_object_or_404 # For sync usage if needed, but p
 from .models import Chat, Message, AIModel, UserSettings
 from .api_client import stream_completion
 # Removed incorrect import of get_active_path_json from .views
+from .utils import count_anthropic_tokens
+
 
 # This is the old consumer, can be removed or kept if used elsewhere.
 # For now, we assume it's not directly used by the new streaming logic.
@@ -148,6 +150,9 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                     await self.send_info_to_client("Cancellation request received.")
                 else:
                     await self.send_info_to_client("No active generation to cancel.")
+            elif message_type == 'estimate_cost':
+                # Cost estimation can run even if a generation is in progress, as it's a lightweight operation.
+                asyncio.create_task(self.handle_estimate_cost(data))
             else:
                 await self.send_error_to_client(f"Unknown message type: {message_type}")
         except json.JSONDecodeError:
@@ -625,3 +630,80 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
     # Handle messages sent to this group (e.g., if broadcasting was needed, but not for this consumer)
     # async def chat_stream_message(self, event):
     #     await self.send(text_data=json.dumps(event))
+
+    async def handle_estimate_cost(self, data):
+        try:
+            current_input_content = data.get('current_input_content', "") # Default to empty string if not provided
+            model_id = data.get('model_id')
+
+            if not model_id:
+                await self.send_error_to_client("Model ID is required for cost estimation.")
+                return
+
+            chat = await database_sync_to_async(Chat.objects.select_related('user', 'ai_model_used__endpoint', 'root_message').get)(id=self.chat_id, user=self.user)
+            ai_model_instance = await database_sync_to_async(AIModel.objects.select_related('endpoint').get)(id=model_id, endpoint__user=self.user)
+            user_settings = await database_sync_to_async(UserSettings.objects.get)(user=self.user)
+
+            # Get message history up to the last saved message
+            last_saved_message_in_thread = await self.get_last_active_message(chat)
+            
+            history_messages = []
+            if last_saved_message_in_thread:
+                 history_messages = await self.get_formatted_message_history(chat, last_saved_message_in_thread)
+            else: # No messages in chat yet, or root_message is null (edge case)
+                 history_messages = []
+
+
+            # Append the user's current (unsubmitted) input to the history
+            # If current_input_content is empty, this effectively counts the current thread + system prompt
+            current_full_conversation = history_messages + [{"role": "user", "content": current_input_content}]
+            
+            # Extract system prompt and prepare final messages list for counter (mirroring api_client.py)
+            system_prompt_in_list = next((msg for msg in current_full_conversation if msg.get("role") == "system"), None)
+            
+            final_system_prompt_str = None
+            messages_for_counter = []
+
+            if system_prompt_in_list:
+                final_system_prompt_str = system_prompt_in_list["content"]
+                messages_for_counter = [msg for msg in current_full_conversation if msg.get("role") != "system"]
+            else:
+                # Use UserSettings.system_prompt (or chat-specific if that feature is added later)
+                final_system_prompt_str = user_settings.system_prompt 
+                messages_for_counter = current_full_conversation
+            
+            # Ensure messages_for_counter doesn't have any system messages if final_system_prompt_str is set
+            if final_system_prompt_str:
+                 messages_for_counter = [m for m in messages_for_counter if m.get("role") != "system"]
+
+            messages_for_counter = [m for m in messages_for_counter if m.get("content") != ""]
+
+            print(ai_model_instance.endpoint.apikey)
+            token_count = await database_sync_to_async(count_anthropic_tokens)(
+                model = ai_model_instance,
+                messages_for_api=messages_for_counter,
+                system_prompt_for_api=final_system_prompt_str
+            )
+
+            estimated_cost_val = None
+            if ai_model_instance.input_cost_per_million_tokens is not None:
+                estimated_cost_val = (token_count / 1_000_000.0) * float(ai_model_instance.input_cost_per_million_tokens)
+            
+            cost_display_str = f"{estimated_cost_val:.6f}" if estimated_cost_val is not None else "N/A"
+
+            await self.send_to_client({
+                'type': 'cost_estimation_result',
+                'token_count': token_count,
+                'estimated_cost': cost_display_str,
+                'currency': "USD" # As per user confirmation
+            })
+
+        except AIModel.DoesNotExist:
+            await self.send_error_to_client("Selected AI Model not found for cost estimation.")
+        except Chat.DoesNotExist:
+            await self.send_error_to_client("Chat session not found for cost estimation.")
+        except UserSettings.DoesNotExist:
+            await self.send_error_to_client("User settings not found for cost estimation.")
+        except Exception as e:
+            print(f"Error in handle_estimate_cost: {type(e).__name__} {e}")
+            await self.send_error_to_client(f"Server error during cost estimation: {str(e)}")
