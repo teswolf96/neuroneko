@@ -621,7 +621,7 @@
 
                     textarea.addEventListener('input', function () {
                         this.style.height = 'auto';
-                        this.style.height = Math.max(this.scrollHeight, minHeightPx) + 'px';
+                        this.style.height = Math.max(this.scrollHeight + 5, minHeightPx) + 'px'; // Added 5px buffer
                     });
 
 
@@ -866,7 +866,7 @@
 
                     // Initial height adjustment AFTER textarea is in the DOM
                     textarea.style.height = 'auto';
-                    textarea.style.height = Math.max(textarea.scrollHeight, minHeightPx) + 'px';
+                    textarea.style.height = Math.max(textarea.scrollHeight + 5, minHeightPx) + 'px'; // Added 5px buffer
                 });
 
                 const deleteButton = document.createElement('button');
