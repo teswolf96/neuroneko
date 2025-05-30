@@ -632,7 +632,7 @@
 
 
                     const editControlsDiv = document.createElement('div');
-                    editControlsDiv.classList.add('flex', 'space-x-2', 'mt-2');
+                    editControlsDiv.classList.add('flex', 'justify-between', 'items-center', 'mt-2');
 
                     const saveEditButton = document.createElement('button');
                     saveEditButton.textContent = 'Save';
@@ -819,14 +819,20 @@
                         });
                     });
 
-                    editControlsDiv.appendChild(saveEditButton);
-                    editControlsDiv.appendChild(generateButtonInEditMenu);
-                    // editControlsDiv.appendChild(cancelEditButton); // Add the cancel button - MOVED TO END
+                    const leftButtonsDiv = document.createElement('div');
+                    leftButtonsDiv.classList.add('flex', 'space-x-2');
+
+                    leftButtonsDiv.appendChild(saveEditButton);
+                    leftButtonsDiv.appendChild(generateButtonInEditMenu);
+                    leftButtonsDiv.appendChild(cancelEditButton); // Moved Cancel to the left group
+
+                    const rightButtonsDiv = document.createElement('div');
+                    rightButtonsDiv.classList.add('flex', 'space-x-2');
 
                     // New "Prompt" button for the edit interface
                     const promptEditButton = document.createElement('button');
                     promptEditButton.textContent = 'Prompt';
-                    promptEditButton.classList.add('bg-indigo-500', 'hover:bg-indigo-600', 'text-white', 'px-3', 'py-1', 'rounded', 'text-sm'); // Removed ml-auto for now, will add cancel to its left
+                    promptEditButton.classList.add('bg-indigo-500', 'hover:bg-indigo-600', 'text-white', 'px-3', 'py-1', 'rounded', 'text-sm');
                     promptEditButton.addEventListener('click', function() {
                         activePromptTargetTextarea = textarea; // Target this specific textarea
                         promptModal.style.display = 'block';
@@ -838,7 +844,7 @@
                         promptFilterInput.value = '';
                         promptFilterInput.focus();
                     });
-                    editControlsDiv.appendChild(promptEditButton); // Add before cancel
+                    rightButtonsDiv.appendChild(promptEditButton); // Add to right group
 
                     // New "Idea" button for the edit interface
                     const ideaEditButton = document.createElement('button');
@@ -855,10 +861,10 @@
                         ideaFilterInput.value = '';
                         ideaFilterInput.focus();
                     });
-                    editControlsDiv.appendChild(ideaEditButton); // Add next to Prompt
+                    rightButtonsDiv.appendChild(ideaEditButton); // Add to right group
 
-                    editControlsDiv.appendChild(cancelEditButton); // Add the cancel button (now to the right of Prompt and Idea)
-
+                    editControlsDiv.appendChild(leftButtonsDiv);
+                    editControlsDiv.appendChild(rightButtonsDiv);
 
                     editingInterfaceDiv.appendChild(textarea);
                     editingInterfaceDiv.appendChild(editControlsDiv);
