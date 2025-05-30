@@ -5,6 +5,21 @@ from django.dispatch import receiver
 
 class UserSettings(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='settings') # This is a OneToOneField, usually created when user is created or on first access.
+
+    TEXT_SIZE_CHOICES = [
+        ('text-xs', 'X-Small'),
+        ('text-sm', 'Small'),
+        ('text-base', 'Medium'),
+        ('text-lg', 'Large'),
+        ('text-xl', 'X-Large'),
+    ]
+    chat_font_size = models.CharField(
+        max_length=10,
+        choices=TEXT_SIZE_CHOICES,
+        default='text-base',
+        help_text="User's preferred chat text size"
+    )
+
     default_model = models.ForeignKey('AIModel', on_delete=models.SET_NULL, null=True, blank=True, help_text="User's preferred default AI model")
     theme = models.CharField(max_length=50, default='light', help_text="User's preferred UI theme (e.g., 'light', 'dark')")
     system_prompt = models.TextField(default="You are playing the role of a friendly and helpful chatbot.", help_text="Default system prompt for the user's interactions.")

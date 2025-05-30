@@ -20,13 +20,14 @@ class UserSettingsForm(forms.ModelForm):
 
     class Meta:
         model = UserSettings
-        fields = ['default_model', 'theme', 'system_prompt', 'default_temp'] # Added default_temp
+        fields = ['default_model', 'system_prompt', 'default_temp', 'chat_font_size'] # Added chat_font_size
         widgets = {
             'system_prompt': forms.Textarea(attrs={'rows': 4, 'cols': 50}),
         }
         help_texts = {
             'default_model': 'Select your preferred default AI model for new chats.',
             'default_temp': 'Set your default temperature for AI responses (e.g., 0.7 for creative, 0.2 for factual).',
+            'chat_font_size': 'Select your preferred text size for chat messages.',
         }
 
 class AIEndpointForm(forms.ModelForm):

@@ -275,6 +275,7 @@
 
     {% block extra_js %}
     <script>
+        const userChatFontSize = '{{ user.settings.chat_font_size|default:"text-base" }}';
         document.addEventListener('DOMContentLoaded', function () {
             const chatItems = document.querySelectorAll('.chat-item');
             const chatModelSelectEl = document.getElementById('chat-model-select'); // Changed from chatModelNameEl
@@ -539,7 +540,7 @@
                 });
 
                 const contentP = document.createElement('div'); // Changed to div to better accommodate block elements from Markdown
-                contentP.classList.add('text-base', 'prose', 'prose-sm', 'prose-invert', 'max-w-none', 'whitespace-pre-line'); // Added prose classes and whitespace-pre-line
+                contentP.classList.add(userChatFontSize, 'prose', 'prose-sm', 'prose-invert', 'max-w-none', 'whitespace-pre-line'); // Added prose classes and whitespace-pre-line, and dynamic font size
                 const rawContent = msg.content || ''; // Ensure rawContent is defined
                 contentP.textContent = rawContent; // Use textContent for plain text
                 contentP.dataset.rawContent = rawContent; // Store raw content for easier updates

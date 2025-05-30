@@ -30,6 +30,14 @@
                             </option>
                         {% endfor %}
                     </select>
+                {% elif field.name == 'chat_font_size' %}
+                    <select name="{{ field.name }}" id="{{ field.id_for_label }}" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+                        {% for choice_value, choice_label in field.field.choices %}
+                            <option value="{{ choice_value }}" {% if field.value|stringformat:"s" == choice_value|stringformat:"s" %}selected{% endif %}>
+                                {{ choice_label }}
+                            </option>
+                        {% endfor %}
+                    </select>
                 {% elif field.name == 'system_prompt' %}
                      <textarea name="{{ field.name }}" id="{{ field.id_for_label }}" rows="4" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">{{ field.value|default_if_none:"" }}</textarea>
                 {% else %}
