@@ -368,7 +368,7 @@ def create_new_chat_view(request):
         title="New Chat", # Default title, user can rename
         folder=target_folder,
         ai_model_used=user_settings.default_model, # Use user's default model
-        ai_temperatue=user_settings.default_temp # Use user's default temperature
+        ai_temperature=user_settings.default_temp # Use user's default temperature
     )
     # Create a default initial message or leave it blank
     # For consistency with signal, let's add a welcome message
@@ -576,7 +576,7 @@ def get_chat_details_api(request, chat_id):
 
     ai_model_name = chat.ai_model_used.name if chat.ai_model_used else (user_settings.default_model.name if user_settings.default_model else "N/A")
     ai_model_used_id = chat.ai_model_used.id if chat.ai_model_used else (user_settings.default_model.id if user_settings.default_model else None)
-    temperature = chat.ai_temperatue # This should be chat.ai_temperature (typo in model)
+    temperature = chat.ai_temperature # This should be chat.ai_temperature (typo in model)
     root_message_id = chat.root_message.id if chat.root_message else None
 
     return JsonResponse({
@@ -1049,7 +1049,7 @@ def clone_chat_api(request, chat_id):
         title=new_chat_name,
         folder=original_chat.folder,
         ai_model_used=original_chat.ai_model_used,
-        ai_temperatue=original_chat.ai_temperatue, # Note: typo in model field name 'ai_temperatue'
+        ai_temperature=original_chat.ai_temperature, # Note: typo in model field name 'ai_temperature'
         # root_message will be set after cloning messages
     )
 
@@ -1153,7 +1153,7 @@ def continue_chat_api(request, chat_id):
         title=new_chat_name,
         folder=original_chat.folder,
         ai_model_used=original_chat.ai_model_used,
-        ai_temperatue=original_chat.ai_temperatue, # Typo is in the model field name
+        ai_temperature=original_chat.ai_temperature, # Typo is in the model field name
         # root_message will be set after creating the first message
     )
 

@@ -86,15 +86,20 @@ class Chat(models.Model):
     root_message = models.ForeignKey('Message', on_delete=models.SET_NULL, null=True, blank=True, related_name='+', help_text="The first message in this chat, acting as the root of the conversation tree")
     # Optional: Store the AI model used for this specific chat
     ai_model_used = models.ForeignKey(AIModel, on_delete=models.SET_NULL, null=True, blank=True, help_text="The AI model used for this chat session")
-    ai_temperatue = models.FloatField('AI Temperature', default=1.0)
+    ai_temperature = models.FloatField('AI Temperature', default=1.0) # Corrected typo
 
     def __str__(self):
         return f"'{self.title}' by {self.user.username}"
 
 class Message(models.Model):
     # No direct user link needed here as it's tied to Chat, which is tied to User.
+    ROLE_CHOICES = [
+        ('user', 'User'),
+        ('assistant', 'Assistant'),
+        ('system', 'System'),
+    ]
     message = models.TextField(help_text="Content of the message")
-    role = models.CharField(max_length=255, help_text="Role of the message sender (e.g., 'user', 'assistant')")
+    role = models.CharField(max_length=255, choices=ROLE_CHOICES, help_text="Role of the message sender (e.g., 'user', 'assistant')")
     parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children', help_text="Parent message in a threaded conversation (optional)")
     chat = models.ForeignKey('Chat', on_delete=models.CASCADE, related_name='messages', help_text="The chat session this message belongs to")
     created_at = models.DateTimeField(auto_now_add=True, null=True) # Added for sorting messages
