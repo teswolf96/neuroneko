@@ -1002,7 +1002,7 @@ def regenerate_chat_title_api(request, chat_id): # Changed to sync def
             api_key=api_key,
             messages=prompt_messages,
             temperature=default_model_instance.default_temperature if default_model_instance.default_temperature is not None else 0.5, # Use model's default or 0.5
-            max_s=30 
+            max_tokens=30 
         )
 
         if api_response and api_response.get('content') and isinstance(api_response['content'], list) and len(api_response['content']) > 0:
