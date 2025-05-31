@@ -41,7 +41,7 @@ class AIEndpointForm(forms.ModelForm):
         }
         help_texts = {
             'name': "A friendly name for this API configuration (e.g., 'My Personal OpenAI').",
-            'url': "The base URL for the API provider (e.g., 'https://api.openai.com/v1').",
+            'url': "The base URL for the API provider (e.g., 'https://api.anthropic.com/').",
             'apikey': "Your API key for this provider. Will be stored securely.",
         }
 
