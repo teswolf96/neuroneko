@@ -59,4 +59,5 @@ urlpatterns = [
     path('api/chat/<int:chat_id>/regenerate_title/', views.regenerate_chat_title_api, name='regenerate_chat_title_api'),
     path('api/chat/<int:chat_id>/clone/', views.clone_chat_api, name='clone_chat_api'),
     path('api/chat/<int:chat_id>/continue/', views.continue_chat_api, name='continue_chat_api'),
+    path('api/chat/advanced_search/', views.advanced_search_api, name='advanced_search_api'),
 ]

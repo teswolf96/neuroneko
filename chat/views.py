@@ -13,6 +13,8 @@ from asgiref.sync import async_to_sync # Added for sync view calling async code
 from .models import Chat, Message, Folder, UserSettings, AIEndpoint, AIModel, SavedPrompt, Idea
 from .forms import UserSettingsForm, AIEndpointForm, AIModelForm, SavedPromptForm, IdeaForm
 from .api_client import test_endpoint, get_static_completion # Updated imports
+from django.utils.html import escape
+from django.db.models import Q
 
 
 @login_required
@@ -1210,3 +1212,135 @@ def continue_chat_api(request, chat_id):
         'new_chat_id': new_chat.id,
         'new_chat_title': new_chat.title
     })
+
+def generate_snippet(text, term, radius=75):
+    """
+    Generates a snippet of text around the first occurrence of a term.
+    Highlights the term with <strong> tags.
+    """
+    text_lower = text.lower()
+    term_lower = term.lower()
+    
+    index = text_lower.find(term_lower)
+    
+    if index == -1:
+        # Term not found, return a snippet from the beginning or the whole text if short
+        return escape(text[:radius * 2]) + ('...' if len(text) > radius * 2 else '')
+
+    start = max(0, index - radius)
+    end = min(len(text), index + len(term) + radius)
+    
+    # Extract the snippet and the original term casing
+    snippet = text[start:index] + text[index:index+len(term)] + text[index+len(term):end]
+    
+    # Escape the parts and then bold the term
+    escaped_prefix = escape(text[start:index])
+    escaped_term = escape(text[index:index+len(term)])
+    escaped_suffix = escape(text[index+len(term):end])
+
+    highlighted_snippet = f"{escaped_prefix}<strong>{escaped_term}</strong>{escaped_suffix}"
+    
+    if start > 0:
+        highlighted_snippet = "..." + highlighted_snippet
+    if end < len(text):
+        highlighted_snippet = highlighted_snippet + "..."
+        
+    return highlighted_snippet
+
+@login_required
+def advanced_search_api(request):
+    if request.method != 'GET':
+        return JsonResponse({'status': 'error', 'error': 'Only GET requests are allowed.'}, status=405)
+
+    search_term = request.GET.get('query', '').strip()
+
+    if not search_term:
+        return JsonResponse({'results': [], 'message': 'Search term cannot be empty.'})
+
+    # Query messages belonging to the user, containing the search term
+    # We also want to search in chat titles.
+    
+    # Search in messages
+    message_matches = Message.objects.filter(
+        chat__user=request.user,
+        message__icontains=search_term
+    ).select_related('chat').order_by('-chat__created_at', '-created_at')[:50] # Limit results
+
+    # Search in chat titles
+    chat_title_matches = Chat.objects.filter(
+        user=request.user,
+        title__icontains=search_term
+    ).order_by('-created_at')[:50] # Limit results
+
+    results = []
+    processed_chat_ids = set() # To avoid duplicate chats if title and message match
+
+    # Process chat title matches first
+    for chat in chat_title_matches:
+        if chat.id not in processed_chat_ids:
+            # For title matches, the "snippet" can be the title itself, or a generic message.
+            # Or, we can try to find the first message of that chat as a snippet.
+            first_message_content = "Chat title matched. No specific message snippet."
+            first_msg_obj = chat.messages.order_by('created_at').first()
+            if first_msg_obj:
+                first_message_content = generate_snippet(first_msg_obj.message, search_term, radius=75)
+
+
+            results.append({
+                'chat_id': chat.id,
+                'chat_title': escape(chat.title), # Escape title
+                'message_id': first_msg_obj.id if first_msg_obj else None,
+                'message_snippet': f"<em>Title Match:</em> {escape(chat.title)}<br/>{first_message_content if first_msg_obj else 'No messages in this chat.'}",
+                'message_role': first_msg_obj.role if first_msg_obj else 'N/A',
+                'message_created_at': first_msg_obj.created_at.strftime('%Y-%m-%d %H:%M') if first_msg_obj and first_msg_obj.created_at else 'N/A',
+                'type': 'title_match'
+            })
+            processed_chat_ids.add(chat.id)
+
+    # Process message content matches
+    for msg in message_matches:
+        if msg.chat.id not in processed_chat_ids: # Only add if chat hasn't been added via title match
+            snippet = generate_snippet(msg.message, search_term)
+            results.append({
+                'chat_id': msg.chat.id,
+                'chat_title': escape(msg.chat.title), # Escape title
+                'message_id': msg.id,
+                'message_snippet': snippet,
+                'message_role': msg.role,
+                'message_created_at': msg.created_at.strftime('%Y-%m-%d %H:%M') if msg.created_at else 'N/A',
+                'type': 'message_match'
+            })
+            processed_chat_ids.add(msg.chat.id) # Add to set even if it's a message match to avoid re-listing same chat
+        elif msg.chat.id in processed_chat_ids:
+            # If chat was already added due to title match, we can add this specific message match as an additional entry
+            # or decide to show only one entry per chat. For now, let's allow multiple distinct message snippets from same chat.
+            # To avoid confusion, let's ensure we don't *just* re-add the chat if it was a title match.
+            # The goal is to show *where* the match occurred.
+            # If a chat title matched, and a message within it also matched, we should show both.
+            # The current logic for processed_chat_ids might prevent showing a message match if title already matched.
+            # Let's refine: we want unique (chat_id, message_id_if_message_match) entries.
+            # For title matches, message_id can be the first message's ID or None.
+            
+            # Re-thinking processed_chat_ids: it should prevent adding the *same message* twice,
+            # or the same chat *as a title match* twice.
+            # A chat can appear once as a title match, and multiple times for different message matches.
+
+            # Let's simplify: the current processed_chat_ids ensures a chat is listed at most once if its title matches.
+            # If its title didn't match, but messages within it did, those messages will be listed.
+            # This seems reasonable. If a user searches "recipe" and a chat is "Chicken Recipe", that's one hit.
+            # If another chat "Shopping List" has "recipe for chicken" in a message, that's another hit.
+
+            # The current logic is: if a chat title matches, it's added. Then, if messages from *other* chats match, they are added.
+            # This means if a chat title matches, its individual message matches won't be shown separately.
+            # This might be okay to keep the list concise.
+            # Alternative: show title match, then also show specific message matches from that same chat.
+            # For now, let's stick to the current logic: title match takes precedence for listing a chat.
+            # If no title match, then message matches from that chat are listed.
+            pass # Chat already listed due to title match, skip adding this specific message match for now.
+
+
+    # Sort results: maybe title matches first, then by chat date?
+    # The current queries already sort. We can re-sort the combined list if needed.
+    # For now, title matches appear first due to order of processing.
+
+    return JsonResponse({'results': results})

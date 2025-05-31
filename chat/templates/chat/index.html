@@ -104,6 +104,10 @@
         <!-- Search Bar -->
         <input type="text" id="sidebar-search" placeholder="Search chats & folders..." class="w-full bg-gray-700 text-white p-2 rounded mb-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
 
+        <button id="open-advanced-search-modal-btn" class="w-full mt-1 mb-2 bg-gray-600 hover:bg-gray-500 text-white px-3 py-1.5 rounded text-xs focus:outline-none">
+            Advanced Search
+        </button>
+
         <div class="flex-1 overflow-y-auto"> <!-- Added overflow-y-auto for scrollable chat list -->
             <!-- Folder Dropdown -->
             <details class="group" id="main-folders-details" open>
@@ -272,6 +276,22 @@
             <input type="text" id="idea-filter-input" class="w-full p-2 mb-4 rounded" placeholder="Filter ideas..."> <!-- ID and placeholder changed -->
             <div id="idea-list-container" class="max-h-60 overflow-y-auto">
                 <!-- Ideas will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Advanced Search Modal HTML -->
+    <div id="advanced-search-modal" class="prompt-modal"> <!-- Re-use prompt-modal for base styling -->
+        <div class="prompt-modal-content"> <!-- Re-use prompt-modal-content for base styling -->
+            <span id="advanced-search-modal-close-btn" class="prompt-modal-close-button">&times;</span>
+            <h2 class="text-xl font-semibold mb-4">Advanced Chat Search</h2>
+            <div class="flex items-center space-x-2 mb-4">
+                <input type="text" id="advanced-search-input" class="w-full bg-gray-700 text-white p-2 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="Search all message content...">
+                <button id="execute-advanced-search-btn" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded text-sm">Search</button>
+            </div>
+            <div id="advanced-search-results-container" class="max-h-80 overflow-y-auto text-sm space-y-2">
+                <!-- Search results will be loaded here -->
+                <p class="text-gray-400 text-center">Enter a term and click Search.</p>
             </div>
         </div>
     </div>
@@ -2771,6 +2791,116 @@
                 });
             }
             // --- End of Sidebar Search Functionality ---
+
+            // --- Advanced Search Modal JavaScript ---
+            const openAdvancedSearchModalButton = document.getElementById('open-advanced-search-modal-btn');
+            const advancedSearchModal = document.getElementById('advanced-search-modal');
+            const advancedSearchModalCloseButton = document.getElementById('advanced-search-modal-close-btn');
+            const advancedSearchInput = document.getElementById('advanced-search-input');
+            const executeAdvancedSearchBtn = document.getElementById('execute-advanced-search-btn');
+            const advancedSearchResultsContainer = document.getElementById('advanced-search-results-container');
+
+            if (openAdvancedSearchModalButton) {
+                openAdvancedSearchModalButton.addEventListener('click', function() {
+                    advancedSearchModal.style.display = 'block';
+                    advancedSearchInput.value = '';
+                    advancedSearchResultsContainer.innerHTML = '<p class="text-gray-400 text-center">Enter a term and click Search.</p>';
+                    advancedSearchInput.focus();
+                });
+            }
+
+            if (advancedSearchModalCloseButton) {
+                advancedSearchModalCloseButton.addEventListener('click', function() {
+                    advancedSearchModal.style.display = 'none';
+                });
+            }
+
+            // Close advanced search modal if user clicks outside of it
+            window.addEventListener('click', function(event) {
+                if (event.target == advancedSearchModal) {
+                    advancedSearchModal.style.display = 'none';
+                }
+            });
+
+            function performAdvancedSearch() {
+                const searchTerm = advancedSearchInput.value.trim();
+                if (!searchTerm) {
+                    advancedSearchResultsContainer.innerHTML = '<p class="text-gray-400 text-center">Please enter a search term.</p>';
+                    return;
+                }
+
+                advancedSearchResultsContainer.innerHTML = '<p class="text-gray-400 text-center">Searching...</p>';
+
+                fetch(`/api/chat/advanced_search/?query=${encodeURIComponent(searchTerm)}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        advancedSearchResultsContainer.innerHTML = ''; // Clear previous results or loading message
+                        if (data.results && data.results.length > 0) {
+                            data.results.forEach(result => {
+                                const resultDiv = document.createElement('div');
+                                resultDiv.classList.add('p-2', 'bg-gray-700', 'rounded', 'hover:bg-gray-600', 'cursor-pointer', 'advanced-search-result-item');
+                                resultDiv.dataset.chatId = result.chat_id;
+                                if (result.message_id) {
+                                    resultDiv.dataset.messageId = result.message_id;
+                                }
+
+                                const titleEl = document.createElement('h4');
+                                titleEl.classList.add('font-semibold', 'text-gray-200');
+                                titleEl.textContent = result.chat_title; // Already escaped by backend
+                                resultDiv.appendChild(titleEl);
+
+                                const metaEl = document.createElement('p');
+                                metaEl.classList.add('text-gray-400', 'text-xs', 'italic');
+                                metaEl.textContent = `Role: ${result.message_role}, Date: ${result.message_created_at}`;
+                                resultDiv.appendChild(metaEl);
+                                
+                                const snippetEl = document.createElement('p');
+                                snippetEl.classList.add('text-gray-300', 'mt-1', 'snippet');
+                                snippetEl.innerHTML = result.message_snippet; // Snippet contains <strong>, so use innerHTML
+                                resultDiv.appendChild(snippetEl);
+
+                                resultDiv.addEventListener('click', function() {
+                                    const chatIdToLoad = this.dataset.chatId;
+                                    const chatItemInSidebar = document.querySelector(`.chat-item .chat-link[data-chat-id="${chatIdToLoad}"]`);
+                                    if (chatItemInSidebar) {
+                                        chatItemInSidebar.closest('.chat-item').click();
+                                        advancedSearchModal.style.display = 'none'; // Close modal after clicking
+                                        // Scrolling to specific message is a future enhancement
+                                    } else {
+                                        alert('Could not find the chat in the sidebar.');
+                                    }
+                                });
+                                advancedSearchResultsContainer.appendChild(resultDiv);
+                            });
+                        } else {
+                            advancedSearchResultsContainer.innerHTML = '<p class="text-gray-400 text-center">No results found.</p>';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error performing advanced search:', error);
+                        advancedSearchResultsContainer.innerHTML = `<p class="text-red-400 text-center">Error: ${error.message}</p>`;
+                    });
+            }
+
+            if (executeAdvancedSearchBtn) {
+                executeAdvancedSearchBtn.addEventListener('click', performAdvancedSearch);
+            }
+
+            if (advancedSearchInput) {
+                advancedSearchInput.addEventListener('keypress', function(event) {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        performAdvancedSearch();
+                    }
+                });
+            }
+            // --- End of Advanced Search Modal JavaScript ---
+
         });
     </script>
     {% endblock %}
