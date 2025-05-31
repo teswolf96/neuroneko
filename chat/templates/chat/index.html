@@ -402,16 +402,17 @@
                             lockSidebar();
                             break;
                         case 'unlock_sidebar':
-                            unlockSidebar();
-                            // Reset Generate/Cancel buttons
-                            generateButton.disabled = false;
-                            generateButton.textContent = 'Generate';
-                            messageInputTextarea.disabled = false;
-                            cancelGenerationButton.classList.add('hidden');
-                            cancelGenerationButton.disabled = false;
-                            cancelGenerationButton.textContent = 'Cancel';
-                            currentAssistantMessageId = null;
-                            currentAssistantMessageContentEl = null;
+                            const wasGeneratingAPlaceholder = currentAssistantMessageId !== null;
+
+                            unlockSidebar(); // Calls unlockGlobalUIAfterGenerationEnd, which handles UI states and currentAssistantMessageId
+
+                            if (wasGeneratingAPlaceholder && currentChatId) {
+                                const activeChatListItem = document.querySelector(`.chat-item.bg-blue-600[data-chat-id="${currentChatId}"]`);
+                                if (activeChatListItem) {
+                                    console.log("Generation attempt involving a placeholder finished, re-fetching chat details to update message tree.");
+                                    activeChatListItem.click(); // This will re-fetch, re-render, and scroll to bottom.
+                                }
+                            }
                             break;
                         case 'stream_chunk':
                             if (data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
@@ -731,7 +732,6 @@
 
                             // Now proceed with generation logic
                             const hasChildren = msg.children && msg.children.length > 0;
-
                             if (!hasChildren) {
                                 // Scenario 3: No children - Generate reply to this edited message
                                 console.log(`Generate reply to message ID: ${editedMessageId}`);
