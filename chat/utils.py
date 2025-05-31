@@ -72,8 +72,8 @@ def _count_openai_tokens_internal(model_id_str: str, messages_for_api: List[Dict
     try:
         encoding = tiktoken.encoding_for_model(model_id_str)
     except KeyError:
-        print(f"Warning: Encoding not found for model {model_id_str}. Using cl100k_base encoding.")
-        encoding = tiktoken.get_encoding("cl100k_base")
+        print(f"Warning: Encoding not found for model {model_id_str}. Using o200k_base encoding.")
+        encoding = tiktoken.get_encoding("o200k_base")
     
     num_tokens = 0
     # OpenAI specific token counting logic
