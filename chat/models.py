@@ -39,7 +39,7 @@ class AIEndpoint(models.Model):
 
     PROVIDER_CHOICES = [
         ('anthropic', 'Anthropic'),
-        ('openai', 'OpenAI'),
+        # ('openai', 'OpenAI'),
         # ('custom', 'Custom API'), # For generic HTTP endpoints - can be added later
     ]
     provider = models.CharField(
