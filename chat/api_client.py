@@ -1,6 +1,9 @@
 # chat/api_client.py
 import anthropic
 from anthropic import AsyncAnthropic
+import openai # Added
+from openai import OpenAI, AsyncOpenAI # Added
+from openai import APIError as OpenAIAPIError, AuthenticationError as OpenAIAuthenticationError, APIConnectionError as OpenAIAPIConnectionError, RateLimitError as OpenAIRateLimitError, APIStatusError as OpenAIAPIStatusError # Added
 import json
 from typing import Callable, Awaitable, Dict, Any, List
 import httpx
@@ -66,6 +69,34 @@ def _test_anthropic_internal(api_key: str) -> Dict[str, Any]:
     except Exception as e: 
         return {"status": "error", "message": "An unexpected error occurred during the Anthropic test.", "details": {"error_type": type(e).__name__, "error_message": str(e)}}
 
+def _test_openai_internal(api_key: str) -> Dict[str, Any]:
+    """
+    Synchronously tests an OpenAI API endpoint by making a minimal call.
+    Args:
+        api_key: The API key.
+    Returns:
+        A dictionary with 'status', 'message', and 'details'.
+    """
+    try:
+        client = OpenAI(api_key=api_key, http_client=http_client_without_ssl_verification)
+        response = client.models.list(limit=1) # Limit to 1 to be minimal
+        return {
+            "status": "success",
+            "message": "OpenAI endpoint test successful!"
+        }
+    except OpenAIAuthenticationError as e:
+        return {"status": "error", "message": "Authentication failed. Check API key.", "details": {"error_type": type(e).__name__, "error_message": str(e), "status_code": e.status_code if hasattr(e, 'status_code') else None}}
+    except OpenAIAPIConnectionError as e:
+        return {"status": "error", "message": "Connection error. Check API URL or network.", "details": {"error_type": type(e).__name__, "error_message": str(e)}}
+    except OpenAIRateLimitError as e:
+        return {"status": "error", "message": "Rate limit exceeded.", "details": {"error_type": type(e).__name__, "error_message": str(e), "status_code": e.status_code if hasattr(e, 'status_code') else None}}
+    except OpenAIAPIStatusError as e: 
+        return {"status": "error", "message": f"API error (status {e.status_code}).", "details": {"error_type": type(e).__name__, "error_message": str(e.response.text if e.response else e), "status_code": e.status_code}}
+    except OpenAIAPIError as e: 
+        return {"status": "error", "message": "An OpenAI API error occurred.", "details": {"error_type": type(e).__name__, "error_message": str(e)}}
+    except Exception as e: 
+        return {"status": "error", "message": "An unexpected error occurred during the OpenAI test.", "details": {"error_type": type(e).__name__, "error_message": str(e)}}
+
 def test_endpoint(endpoint) -> Dict[str, Any]: # endpoint is an AIEndpoint model instance
     """
     Tests an API endpoint based on its provider.
@@ -79,8 +110,8 @@ def test_endpoint(endpoint) -> Dict[str, Any]: # endpoint is an AIEndpoint model
 
     if endpoint.provider == 'anthropic':
         return _test_anthropic_internal(api_key=endpoint.apikey)
-    # elif endpoint.provider == 'openai':
-    #     return _test_openai_internal(api_key=endpoint.apikey) # To be implemented
+    elif endpoint.provider == 'openai':
+        return _test_openai_internal(api_key=endpoint.apikey)
     else:
         return {"status": "error", "message": f"Testing not implemented for provider: {endpoint.provider}", "details": None}
 
@@ -178,8 +209,15 @@ async def get_static_completion(
             max_tokens=effective_max_tokens,
             **kwargs
         )
-    # elif model.endpoint.provider == 'openai':
-    #     return await _get_static_completion_openai_internal(...) # To be implemented
+    elif model.endpoint.provider == 'openai':
+        return await _get_static_completion_openai_internal(
+            ai_model_id=model.model_id,
+            api_key=model.endpoint.apikey,
+            messages=messages,
+            temperature=effective_temperature,
+            max_tokens=effective_max_tokens,
+            **kwargs
+        )
     else:
         return {"id": None, "content": None, "role": "error", "model_used": model.model_id, "stop_reason": "error", "usage": None, "error": {"type": "UnsupportedProviderError", "message": f"Static completion not implemented for provider: {model.endpoint.provider}"}}
 
@@ -286,8 +324,16 @@ async def stream_completion(
             max_tokens=effective_max_tokens,
             **kwargs
         )
-    # elif model.endpoint.provider == 'openai':
-    #     await _stream_completion_openai_internal(...) # To be implemented
+    elif model.endpoint.provider == 'openai':
+        await _stream_completion_openai_internal(
+            ai_model_id=model.model_id,
+            api_key=model.endpoint.apikey,
+            messages=messages,
+            on_chunk_callback=on_chunk_callback,
+            temperature=effective_temperature,
+            max_tokens=effective_max_tokens,
+            **kwargs
+        )
     else:
         await on_chunk_callback({"type": "error", "message": f"Streaming not implemented for provider: {model.endpoint.provider}"})
 
@@ -329,3 +375,155 @@ async def stream_completion(
 #         temperature=ai_model_obj.default_temperature or 0.7,
 #         max_tokens=500 # Example max_tokens
 #     )
+
+async def _get_static_completion_openai_internal(
+    ai_model_id: str,
+    api_key: str,
+    messages: List[ChatMessage],
+    temperature: float = None,
+    max_tokens: int = None,
+    **kwargs: Any
+) -> Dict[str, Any]:
+    """
+    Makes a static (non-streaming) API call to an OpenAI model.
+    Returns a standardized dictionary.
+    """
+    try:
+        client = OpenAI(api_key=api_key, http_client=http_client_without_ssl_verification)
+        
+        payload = {
+            "model": ai_model_id,
+            "messages": messages, # OpenAI expects system message as part of this list
+        }
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+        
+        # OpenAI doesn't use a separate 'system' parameter in the main payload for chat completions v1+
+        # System messages should be the first message in the 'messages' list.
+        # No special handling for 'system' in kwargs needed here unless it's for other parameters.
+        payload.update(kwargs) # For other potential OpenAI params like 'top_p', 'frequency_penalty', etc.
+        
+        api_response = client.chat.completions.create(**payload)
+        
+        choice = api_response.choices[0]
+        
+        return {
+            "id": api_response.id,
+            "content": choice.message.content,
+            "role": choice.message.role, # Should be 'assistant'
+            "model_used": api_response.model,
+            "stop_reason": choice.finish_reason,
+            "usage": {
+                "input_tokens": api_response.usage.prompt_tokens, 
+                "output_tokens": api_response.usage.completion_tokens
+            } if api_response.usage else None,
+            "error": None
+        }
+    except OpenAIAPIStatusError as e:
+        error_payload = {"type": type(e).__name__, "message": str(e.response.text if e.response else e), "status_code": e.status_code}
+        print(f"OpenAI API Error (Static): {error_payload}")
+        return {"id": None, "content": None, "role": "error", "model_used": ai_model_id, "stop_reason": "error", "usage": None, "error": error_payload}
+    except OpenAIAPIConnectionError as e:
+        error_payload = {"type": type(e).__name__, "message": str(e)}
+        print(f"OpenAI Connection Error (Static): {error_payload}")
+        return {"id": None, "content": None, "role": "error", "model_used": ai_model_id, "stop_reason": "error", "usage": None, "error": error_payload}
+    except Exception as e: 
+        error_payload = {"type": type(e).__name__, "message": str(e)}
+        print(f"Unexpected Error (Static OpenAI): {error_payload}")
+        return {"id": None, "content": None, "role": "error", "model_used": ai_model_id, "stop_reason": "error", "usage": None, "error": error_payload}
+
+async def _stream_completion_openai_internal(
+    ai_model_id: str,
+    api_key: str,
+    messages: List[ChatMessage],
+    on_chunk_callback: Callable[[Dict[str, Any]], Awaitable[None]],
+    temperature: float = None,
+    max_tokens: int = None,
+    **kwargs: Any
+):
+    """
+    Makes a streaming API call to an OpenAI model and invokes a callback with standardized chunks.
+    """
+    try:
+        client = AsyncOpenAI(api_key=api_key, http_client=http_async_client_without_ssl_verification)
+        
+        payload = {
+            "model": ai_model_id,
+            "messages": messages,
+            "stream": True,
+            # stream_options include_usage for getting usage data in the last chunk
+            "stream_options": {"include_usage": True} 
+        }
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+        
+        payload.update(kwargs)
+
+        stream_id = None # To store the ID from the first chunk if available
+        # final_usage variable might not be needed if usage is consistently in the stop chunk
+
+        api_response_object = await client.chat.completions.with_raw_response.create(**payload)
+        async with api_response_object.parse() as parsed_stream: # parsed_stream is an AsyncStream
+            async for chunk_event in parsed_stream: # chunk_event is now directly ChatCompletionChunk
+                standardized_chunk = None
+                
+                if not stream_id and chunk_event.id:
+                    stream_id = chunk_event.id
+                    # OpenAI doesn't have a direct 'message_start' equivalent like Anthropic for input tokens.
+                    # We can send a metadata chunk with the stream ID.
+                    standardized_chunk = {
+                        "type": "metadata",
+                        "data": {"id": stream_id, "model_used": chunk_event.model}
+                    }
+                    await on_chunk_callback(standardized_chunk)
+                    standardized_chunk = None # Reset for actual content
+
+                if chunk_event.choices:
+                    delta = chunk_event.choices[0].delta
+                    finish_reason = chunk_event.choices[0].finish_reason
+
+                    if delta and delta.content:
+                        standardized_chunk = {"type": "delta", "text_delta": delta.content}
+                    
+                    if finish_reason:
+                        # The last chunk with finish_reason might also contain usage if stream_options is set
+                        usage_data = None
+                        if chunk_event.usage:
+                             usage_data = {
+                                "input_tokens": chunk_event.usage.prompt_tokens,
+                                "output_tokens": chunk_event.usage.completion_tokens
+                            }
+                        standardized_chunk = {
+                            "type": "stop", 
+                            "stop_reason": finish_reason,
+                            "usage": usage_data
+                        }
+                
+                # Check for usage in the last chunk (OpenAI specific with stream_options)
+                if chunk_event.usage and not standardized_chunk: # If usage is present and we haven't formed a stop chunk yet
+                    # This case might be redundant if finish_reason always comes with usage,
+                    # but good for robustness.
+                    final_usage = {
+                        "input_tokens": chunk_event.usage.prompt_tokens,
+                        "output_tokens": chunk_event.usage.completion_tokens
+                    }
+                    # If there wasn't a finish_reason in this specific chunk, but we got usage,
+                    # we might need to send a separate metadata or ensure the *actual* last chunk (with finish_reason)
+                    # includes this. The current logic assumes finish_reason chunk will have it.
+
+                if standardized_chunk:
+                    await on_chunk_callback(standardized_chunk)
+
+    except OpenAIAPIStatusError as e:
+        error_detail = {"type": "error", "message": f"API Error (status {e.status_code}): {e.response.text if e.response else str(e)}"}
+        await on_chunk_callback(error_detail)
+    except OpenAIAPIConnectionError as e:
+        error_detail = {"type": "error", "message": f"Connection Error: {str(e)}"}
+        await on_chunk_callback(error_detail)
+    except Exception as e:
+        error_detail = {"type": "error", "message": f"Unexpected error during OpenAI stream: {str(e)}"}
+        await on_chunk_callback(error_detail)

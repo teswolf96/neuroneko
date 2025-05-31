@@ -4,3 +4,4 @@ daphne==4.0.0
 httpx>=0.20
 anthropic>=0.20.0  # Or the latest version
 openai>=1.0.0 # Or the latest version
+tiktoken>=0.4.0 # Or the latest version
