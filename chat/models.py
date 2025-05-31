@@ -35,11 +35,22 @@ class UserSettings(models.Model):
 class AIEndpoint(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ai_endpoints', help_text="The user who owns this AI endpoint configuration", null=True, blank=True)
     name = models.CharField(max_length=255, help_text="A custom name for the AI endpoint (e.g., 'My OpenAI GPT-4')")
-    url = models.CharField(max_length=1024, help_text="The base URL of the AI endpoint")
-    apikey = models.CharField(max_length=4096, help_text="API key for accessing this endpoint (user-specific)", null=True, blank=True) # Renamed from apitkey
+    apikey = models.CharField(max_length=4096, help_text="API key for accessing this endpoint (user-specific)", null=True, blank=True)
+
+    PROVIDER_CHOICES = [
+        ('anthropic', 'Anthropic'),
+        ('openai', 'OpenAI'),
+        # ('custom', 'Custom API'), # For generic HTTP endpoints - can be added later
+    ]
+    provider = models.CharField(
+        max_length=50,
+        choices=PROVIDER_CHOICES,
+        default='anthropic',
+        help_text="The AI provider for this endpoint."
+    )
 
     def __str__(self):
-        return f"{self.name} ({self.user.username})"
+        return f"{self.name} ({self.user.username if self.user else 'System Default'}) - {self.get_provider_display()}"
 
 class AIModel(models.Model):
     # No direct user link here, assuming models are primarily defined by their endpoint, which is user-owned.
@@ -54,7 +65,7 @@ class AIModel(models.Model):
     currency = models.CharField(max_length=3, default="USD", help_text="Currency of the cost (e.g., USD, EUR)")
 
     def __str__(self):
-        return f"{self.name} ({self.endpoint.name})"
+        return f"{self.name} ({self.endpoint.name if self.endpoint else 'No Endpoint'})"
 
 class Folder(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='folders', help_text="The user who owns this folder", null=True, blank=True)
@@ -150,24 +161,27 @@ def create_user_settings(sender, instance, created, **kwargs):
     if created:
         # Create default AI Endpoint
         # AIEndpoint, AIModel, UserSettings, Chat, Message models are defined in this file.
-        default_endpoint = AIEndpoint.objects.create(
+        # Create default Anthropic AI Endpoint (since 'anthropic' is the default provider)
+        default_anthropic_endpoint = AIEndpoint.objects.create(
             user=instance,
-            name="Default OpenAI",
-            url="https://api.openai.com/v1"
+            name="Default Anthropic",
+            provider="anthropic"
             # apikey is left blank as per model definition (null=True, blank=True)
+            # url field is removed
         )
 
-        # Create default AI Model associated with the endpoint
-        default_model = AIModel.objects.create(
-            endpoint=default_endpoint,
-            name="GPT-3.5 Turbo",
-            model_id="gpt-3.5-turbo"
+        # Create default AI Model associated with the Anthropic endpoint
+        # For Anthropic, a common model might be claude-3-haiku
+        default_anthropic_model = AIModel.objects.create(
+            endpoint=default_anthropic_endpoint,
+            name="Claude 3 Haiku", # Example model name
+            model_id="claude-3-haiku-20240307" # Example model ID
         )
 
         # Create UserSettings with the new default model
         UserSettings.objects.create(
             user=instance,
-            default_model=default_model
+            default_model=default_anthropic_model
             # system_prompt and theme will use their model defaults
         )
 

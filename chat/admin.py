@@ -16,9 +16,9 @@ admin.site.register(UserSettings, UserSettingsAdmin)
 
 
 class AIEndpointAdmin(admin.ModelAdmin):
-    list_display = ('name', 'user', 'url')
-    search_fields = ('name', 'user__username', 'url')
-    list_filter = ('user',)
+    list_display = ('name', 'user', 'provider')
+    search_fields = ('name', 'user__username', 'provider')
+    list_filter = ('user', 'provider',)
     raw_id_fields = ('user',)
 
     class Media:

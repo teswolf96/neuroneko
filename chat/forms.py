@@ -33,15 +33,15 @@ class UserSettingsForm(forms.ModelForm):
 class AIEndpointForm(forms.ModelForm):
     class Meta:
         model = AIEndpoint
-        fields = ['name', 'url', 'apikey']
+        fields = ['name', 'provider', 'apikey'] # Removed 'url', added 'provider'
         widgets = {
             'name': forms.TextInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
-            'url': forms.TextInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
+            'provider': forms.Select(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
             'apikey': forms.PasswordInput(render_value=False, attrs={'placeholder': 'Enter API Key', 'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
         }
         help_texts = {
             'name': "A friendly name for this API configuration (e.g., 'My Personal OpenAI').",
-            'url': "The base URL for the API provider (e.g., 'https://api.anthropic.com/').",
+            'provider': "Select the AI provider for this endpoint.",
             'apikey': "Your API key for this provider. Will be stored securely.",
         }
 

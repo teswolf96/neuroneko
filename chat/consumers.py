@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404 # For sync usage if needed, but p
 from .models import Chat, Message, AIModel, UserSettings
 from .api_client import stream_completion
 # Removed incorrect import of get_active_path_json from .views
-from .utils import count_anthropic_tokens
+from .utils import count_tokens # Updated import
 
 
 # This is the old consumer, can be removed or kept if used elsewhere.
@@ -243,59 +243,38 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
 
             # 5. Prepare messages for API
             # This needs to reconstruct the conversation history in the format the API expects.
-            # [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
-            # We need to fetch the active path of messages up to the new user_msg_obj.
             api_messages = await self.get_formatted_message_history(chat, user_msg_obj)
             
-            # Add system prompt if available and not already part of history structure
-            # system_prompt_content = user_settings.system_prompt
-            # if chat.system_prompt: # If chat has its own system prompt
-            #     system_prompt_content = chat.system_prompt
-            
-            # if system_prompt_content:
-                # Check if system prompt is already the first message from `get_formatted_message_history`
-                # For Anthropic, system prompt is a top-level parameter.
-                # The `api_client.stream_completion` handles extracting it.
-                # So, we can just prepend it to the messages list if it's not there.
-                # Or, ensure `get_formatted_message_history` includes it if it's the root.
-                # For now, let `stream_completion` handle it via its payload prep.
-                # We just need to ensure the `api_messages` list is correct.
-                # If the root message is a system message, it should be included.
-                # pass
-
+            # System prompt is handled by the stream_completion function if it's part of messages
+            # or passed as a kwarg. For Anthropic, it's extracted from messages or taken from kwargs.
 
             # 6. Start Streaming
             accumulated_content = ""
             
-            # The callback needs access to assistant_msg_obj.id and the cancel_stream_flag
-            async def on_chunk(chunk_data):
-                nonlocal accumulated_content # To modify the outer scope variable
+            async def on_chunk(chunk_data): # chunk_data is now standardized
+                nonlocal accumulated_content 
                 if self.cancel_stream_flag.is_set():
-                    # Send cancellation confirmation and stop.
-                    # The stream_completion itself doesn't have a direct "stop" method in its loop.
-                    # We rely on not processing further chunks.
                     await self.send_to_client({
                         'type': 'stream_cancelled',
                         'assistant_message_id': assistant_msg_obj.id,
                     })
-                    # Update the assistant message with whatever was accumulated before cancellation
                     assistant_msg_obj.message = accumulated_content
                     await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
                     await self.send_to_client({'type': 'unlock_sidebar'})
-                    return False # Signal to stop processing (custom flag for our loop if api_client supported it)
+                    return False 
 
                 chunk_type = chunk_data.get("type")
                 
-                if chunk_data.get("error"):
-                    error_detail = chunk_data.get("detail", "Unknown API error during stream.")
-                    assistant_msg_obj.message = f"Error: {error_detail}" # Save error to message
+                if chunk_type == "error":
+                    error_message = chunk_data.get("message", "Unknown API error during stream.")
+                    assistant_msg_obj.message = f"Error: {error_message}" 
                     await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
-                    await self.send_error_to_client(f"API Error: {error_detail}", assistant_msg_obj.id)
+                    await self.send_error_to_client(f"API Error: {error_message}", assistant_msg_obj.id)
                     await self.send_to_client({'type': 'unlock_sidebar'})
-                    return False # Stop
+                    return False
 
-                if chunk_type == "content_block_delta":
-                    delta_text = chunk_data.get("delta", {}).get("text", "")
+                if chunk_type == "delta":
+                    delta_text = chunk_data.get("text_delta", "")
                     if delta_text:
                         accumulated_content += delta_text
                         await self.send_to_client({
@@ -303,37 +282,38 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                             'assistant_message_id': assistant_msg_obj.id,
                             'text_delta': delta_text
                         })
-                elif chunk_type == "message_stop" or \
-                     (chunk_type == "message_delta" and chunk_data.get("delta", {}).get("stop_reason")):
-                    # Stream finished
+                elif chunk_type == "stop":
                     assistant_msg_obj.message = accumulated_content
                     await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
                     
-                    stop_reason = None
-                    if chunk_type == "message_delta":
-                        stop_reason = chunk_data.get("delta", {}).get("stop_reason")
+                    stop_reason = chunk_data.get("stop_reason")
+                    # usage_info = chunk_data.get("usage") # Optional: if provider sends usage at stop
                     
                     await self.send_to_client({
                         'type': 'stream_end',
                         'assistant_message_id': assistant_msg_obj.id,
                         'full_content': accumulated_content,
                         'stop_reason': stop_reason
+                        # 'usage': usage_info # Optional
                     })
                     await self.send_to_client({'type': 'unlock_sidebar'})
-                    return False # Stop processing chunks
+                    return False
+                elif chunk_type == "metadata":
+                    # Handle metadata if needed, e.g., message ID from provider
+                    # For now, we primarily use our DB-generated IDs.
+                    # print(f"Stream metadata received: {chunk_data.get('data')}")
+                    pass
 
-                return True # Continue processing
+                return True
 
-            # Call the API client's stream_completion
+            # Call the API client's stream_completion with the AIModel instance
             await stream_completion(
-                ai_model_id=ai_model_instance.model_id,
-                api_base_url=ai_model_instance.endpoint.url,
-                api_key=ai_model_instance.endpoint.apikey,
-                messages=api_messages, # This needs to be correctly formatted
-                on_chunk_callback=on_chunk, # This callback will handle sending to client
+                model=ai_model_instance, # Pass the AIModel instance
+                messages=api_messages,
+                on_chunk_callback=on_chunk,
                 temperature=temperature,
                 max_tokens=max_tokens
-                # system=system_prompt_content # Pass system prompt explicitly if needed by API client
+                # System prompt is handled within stream_completion based on messages or kwargs
             )
 
         except AIModel.DoesNotExist:
@@ -391,7 +371,7 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
             api_messages = await self.get_formatted_message_history(chat, parent_message) # History up to the parent
 
             accumulated_content = ""
-            async def on_chunk(chunk_data):
+            async def on_chunk(chunk_data): # chunk_data is now standardized
                 nonlocal accumulated_content
                 if self.cancel_stream_flag.is_set():
                     assistant_msg_obj.message = accumulated_content
@@ -401,16 +381,16 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                     return False
 
                 chunk_type = chunk_data.get("type")
-                if chunk_data.get("error"):
-                    error_detail = chunk_data.get("detail", "Unknown API error during stream.")
-                    assistant_msg_obj.message = f"Error: {error_detail}"
+                if chunk_type == "error":
+                    error_message = chunk_data.get("message", "Unknown API error during stream.")
+                    assistant_msg_obj.message = f"Error: {error_message}"
                     await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
-                    await self.send_error_to_client(f"API Error: {error_detail}", assistant_msg_obj.id)
+                    await self.send_error_to_client(f"API Error: {error_message}", assistant_msg_obj.id)
                     await self.send_to_client({'type': 'unlock_sidebar'})
                     return False
 
-                if chunk_type == "content_block_delta":
-                    delta_text = chunk_data.get("delta", {}).get("text", "")
+                if chunk_type == "delta":
+                    delta_text = chunk_data.get("text_delta", "")
                     if delta_text:
                         accumulated_content += delta_text
                         await self.send_to_client({
@@ -418,11 +398,10 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                             'assistant_message_id': assistant_msg_obj.id,
                             'text_delta': delta_text
                         })
-                elif chunk_type == "message_stop" or \
-                     (chunk_type == "message_delta" and chunk_data.get("delta", {}).get("stop_reason")):
+                elif chunk_type == "stop":
                     assistant_msg_obj.message = accumulated_content
                     await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
-                    stop_reason = chunk_data.get("delta", {}).get("stop_reason") if chunk_type == "message_delta" else None
+                    stop_reason = chunk_data.get("stop_reason")
                     await self.send_to_client({
                         'type': 'stream_end',
                         'assistant_message_id': assistant_msg_obj.id,
@@ -431,12 +410,13 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                     })
                     await self.send_to_client({'type': 'unlock_sidebar'})
                     return False
+                elif chunk_type == "metadata":
+                    pass # Handle metadata if needed
+
                 return True
 
             await stream_completion(
-                ai_model_id=ai_model_instance.model_id,
-                api_base_url=ai_model_instance.endpoint.url,
-                api_key=ai_model_instance.endpoint.apikey,
+                model=ai_model_instance, # Pass the AIModel instance
                 messages=api_messages,
                 on_chunk_callback=on_chunk,
                 temperature=temperature,
@@ -491,7 +471,7 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
             api_messages = await self.get_formatted_message_history(chat, target_message.parent) 
 
             accumulated_content = ""
-            async def on_chunk(chunk_data):
+            async def on_chunk(chunk_data): # chunk_data is now standardized
                 nonlocal accumulated_content
                 if self.cancel_stream_flag.is_set():
                     target_message.message = accumulated_content
@@ -501,28 +481,27 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                     return False
 
                 chunk_type = chunk_data.get("type")
-                if chunk_data.get("error"):
-                    error_detail = chunk_data.get("detail", "Unknown API error during stream.")
-                    target_message.message = f"Error: {error_detail}"
+                if chunk_type == "error":
+                    error_message = chunk_data.get("message", "Unknown API error during stream.")
+                    target_message.message = f"Error: {error_message}"
                     await database_sync_to_async(target_message.save)(update_fields=['message'])
-                    await self.send_error_to_client(f"API Error: {error_detail}", target_message.id)
+                    await self.send_error_to_client(f"API Error: {error_message}", target_message.id)
                     await self.send_to_client({'type': 'unlock_sidebar'})
                     return False
 
-                if chunk_type == "content_block_delta":
-                    delta_text = chunk_data.get("delta", {}).get("text", "")
+                if chunk_type == "delta":
+                    delta_text = chunk_data.get("text_delta", "")
                     if delta_text:
                         accumulated_content += delta_text
                         await self.send_to_client({
                             'type': 'stream_chunk',
-                            'assistant_message_id': target_message.id, # Stream to the target message
+                            'assistant_message_id': target_message.id, 
                             'text_delta': delta_text
                         })
-                elif chunk_type == "message_stop" or \
-                     (chunk_type == "message_delta" and chunk_data.get("delta", {}).get("stop_reason")):
+                elif chunk_type == "stop":
                     target_message.message = accumulated_content
                     await database_sync_to_async(target_message.save)(update_fields=['message'])
-                    stop_reason = chunk_data.get("delta", {}).get("stop_reason") if chunk_type == "message_delta" else None
+                    stop_reason = chunk_data.get("stop_reason")
                     await self.send_to_client({
                         'type': 'stream_end',
                         'assistant_message_id': target_message.id,
@@ -531,12 +510,12 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                     })
                     await self.send_to_client({'type': 'unlock_sidebar'})
                     return False
+                elif chunk_type == "metadata":
+                    pass # Handle metadata if needed
                 return True
 
             await stream_completion(
-                ai_model_id=ai_model_instance.model_id,
-                api_base_url=ai_model_instance.endpoint.url,
-                api_key=ai_model_instance.endpoint.apikey,
+                model=ai_model_instance, # Pass the AIModel instance
                 messages=api_messages,
                 on_chunk_callback=on_chunk,
                 temperature=temperature,
@@ -679,8 +658,9 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
             messages_for_counter = [m for m in messages_for_counter if m.get("content") != ""]
 
             if messages_for_counter != []:
-                token_count = await database_sync_to_async(count_anthropic_tokens)(
-                    model = ai_model_instance,
+                # Use the new generic count_tokens function
+                token_count = await database_sync_to_async(count_tokens)( # Updated call
+                    model=ai_model_instance, # Pass the AIModel instance
                     messages_for_api=messages_for_counter,
                     system_prompt_for_api=final_system_prompt_str
                 )

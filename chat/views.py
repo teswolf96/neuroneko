@@ -12,7 +12,7 @@ from asgiref.sync import async_to_sync # Added for sync view calling async code
 
 from .models import Chat, Message, Folder, UserSettings, AIEndpoint, AIModel, SavedPrompt, Idea
 from .forms import UserSettingsForm, AIEndpointForm, AIModelForm, SavedPromptForm, IdeaForm
-from .api_client import test_anthropic_endpoint, get_static_completion # New import
+from .api_client import test_endpoint, get_static_completion # Updated imports
 
 
 @login_required
@@ -307,15 +307,16 @@ def api_model_delete_view(request, pk):
 def test_api_endpoint_view(request, endpoint_id):
     endpoint = get_object_or_404(AIEndpoint, pk=endpoint_id, user=request.user)
     
-    if not endpoint.url or not endpoint.apikey:
-        return JsonResponse({"status": "error", "message": "Endpoint URL or API key is missing in the configuration."}, status=400)
+    # API key check is now handled within test_endpoint
+    # URL is no longer a field on the endpoint model for SDK-based providers
 
-    # Assuming this endpoint is intended for Anthropic.
-    # Future: Could add a 'provider' field to AIEndpoint to dispatch to different test functions.
-    result = test_anthropic_endpoint(api_key=endpoint.apikey, base_url=endpoint.url)
+    result = test_endpoint(endpoint) # Use the new generic test_endpoint
     
     http_status = 200 if result["status"] == "success" else 400
-    if result["status"] == "error" and "An unexpected error occurred" in result["message"]:
+    # Check for specific "unexpected error" to set 500, otherwise use 400 for other errors.
+    if result["status"] == "error" and result.get("details", {}).get("error_type") not in [
+        "AuthenticationError", "APIConnectionError", "RateLimitError", "APIStatusError" # Known client/API errors
+    ] and "An unexpected error occurred" in result.get("message", ""):
         http_status = 500
             
     return JsonResponse(result, status=http_status)
@@ -962,13 +963,12 @@ def regenerate_chat_title_api(request, chat_id): # Changed to sync def
     default_model_instance = user_settings.default_model
     if not default_model_instance:
         return JsonResponse({'status': 'error', 'error': 'Default AI model not set for user.'}, status=400)
+    
+    if not default_model_instance.endpoint or not default_model_instance.endpoint.apikey:
+        return JsonResponse({'status': 'error', 'error': 'Default AI model\'s endpoint configuration is incomplete (missing API key).'}, status=400)
 
-    ai_model_id = default_model_instance.model_id
-    api_key = default_model_instance.endpoint.apikey
-    api_base_url = default_model_instance.endpoint.url
-
-    if not all([ai_model_id, api_key, api_base_url]):
-        return JsonResponse({'status': 'error', 'error': 'AI Model or Endpoint configuration is incomplete (missing ID, key, or URL).'}, status=400)
+    # api_base_url is no longer used directly here, handled by api_client
+    # ai_model_id and api_key are accessed via default_model_instance.model_id and default_model_instance.endpoint.apikey
 
     first_message = chat.root_message
     if not first_message:
@@ -995,37 +995,37 @@ def regenerate_chat_title_api(request, chat_id): # Changed to sync def
     prompt_messages.append({"role": "user", "content": "Based on the conversation snippet(s) above, suggest a suitable title for this chat, ideally 5-7 words long, based on the beginning of a conversation. Do not include quotation marks in the title itself."})
 
     try:
-        # Call the async function synchronously
+        # Call the refactored async function synchronously
         api_response = async_to_sync(get_static_completion)(
-            ai_model_id=ai_model_id,
-            api_base_url=api_base_url,
-            api_key=api_key,
+            model=default_model_instance, # Pass the AIModel instance
             messages=prompt_messages,
-            temperature=default_model_instance.default_temperature if default_model_instance.default_temperature is not None else 0.5, # Use model's default or 0.5
-            max_tokens=30 
+            temperature=default_model_instance.default_temperature if default_model_instance.default_temperature is not None else 0.5,
+            max_tokens=30
         )
 
-        if api_response and api_response.get('content') and isinstance(api_response['content'], list) and len(api_response['content']) > 0:
-            new_title = api_response['content'][0].get('text', '').strip()
-            # Remove leading/trailing quotes if AI adds them
-            if new_title.startswith('"') and new_title.endswith('"'):
-                new_title = new_title[1:-1]
-            if new_title.startswith("'") and new_title.endswith("'"):
-                new_title = new_title[1:-1]
-            
-            if not new_title: # If AI returns empty string
-                 return JsonResponse({'status': 'error', 'error': 'AI failed to generate a title.'}, status=500)
+        if api_response.get('error'):
+            error_details = api_response.get('error')
+            print(f"Error from AI API for title regeneration: {error_details}")
+            return JsonResponse({'status': 'error', 'error': f"AI API Error: {error_details.get('message', 'Unknown error')}"}, status=500)
 
-            chat.title = new_title
-            chat.save(update_fields=['title'])
-            return JsonResponse({'status': 'success', 'new_title': chat.title, 'chat_id': chat.id})
-        else:
-            return JsonResponse({'status': 'error', 'error': 'Invalid response format from AI API.'}, status=500)
+        new_title = api_response.get('content', '').strip()
+        # Remove leading/trailing quotes if AI adds them
+        if new_title.startswith('"') and new_title.endswith('"'):
+            new_title = new_title[1:-1]
+        if new_title.startswith("'") and new_title.endswith("'"):
+            new_title = new_title[1:-1]
+        
+        if not new_title:
+            return JsonResponse({'status': 'error', 'error': 'AI failed to generate a non-empty title.'}, status=500)
+
+        chat.title = new_title
+        chat.save(update_fields=['title'])
+        return JsonResponse({'status': 'success', 'new_title': chat.title, 'chat_id': chat.id})
 
     except Exception as e:
         # Log the exception e for debugging
-        print(f"Error during AI call for title regeneration: {e}")
-        return JsonResponse({'status': 'error', 'error': f'Failed to generate title due to an API error: {str(e)}'}, status=500)
+        print(f"Unexpected error during title regeneration: {e}")
+        return JsonResponse({'status': 'error', 'error': f'Failed to generate title due to an unexpected server error: {str(e)}'}, status=500)
 
 
 @login_required

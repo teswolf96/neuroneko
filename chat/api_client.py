@@ -11,38 +11,82 @@ http_async_client_without_ssl_verification = httpx.AsyncClient(verify=False)
 # Define a type for the message structure, common in chat APIs
 ChatMessage = Dict[str, str]  # e.g., {"role": "user", "content": "Hello"}
 
-def test_anthropic_endpoint(api_key: str, base_url: str) -> Dict[str, Any]:
+# Standardized response format for static completion (as a comment for now)
+# {
+#   "id": "provider_message_id",
+#   "content": "Full AI response text",
+#   "role": "assistant",
+#   "model_used": "provider_model_string",
+#   "stop_reason": "e.g., length, stop_sequence",
+#   "usage": { "input_tokens": 100, "output_tokens": 50 },
+#   "error": null // or { "type": "...", "message": "..." }
+# }
+
+# Standardized stream chunk format (as a comment for now)
+# // For text delta
+# { "type": "delta", "text_delta": "some text" }
+# // For stop event
+# { "type": "stop", "stop_reason": "length", "usage": { "output_tokens": 50 } } // Optionally include usage at stop
+# // For error
+# { "type": "error", "message": "API error details" }
+# // For full message metadata (if applicable, like Anthropic's message_start/message_stop)
+# { "type": "metadata", "data": { ... } }
+
+
+def _test_anthropic_internal(api_key: str) -> Dict[str, Any]:
     """
     Synchronously tests an Anthropic API endpoint by making a minimal call.
     Args:
         api_key: The API key.
-        base_url: The base URL for the Anthropic API.
     Returns:
         A dictionary with 'status', 'message', and 'details'.
     """
     try:
+        # Base URL is handled by the SDK environment variables or defaults
         client = anthropic.Anthropic(api_key=api_key, http_client=http_client_without_ssl_verification)
-        response = client.models.list(limit=20)
+        # A lightweight call, like listing models or a very short completion, can be used.
+        # client.models.list() is a good option if available and doesn't consume significant resources.
+        response = client.models.list(limit=1) # Limit to 1 to be minimal
         return {
             "status": "success",
-            "message": "Endpoint test successful!"
+            "message": "Anthropic endpoint test successful!"
         }
     except anthropic.AuthenticationError as e:
         return {"status": "error", "message": "Authentication failed. Check API key.", "details": {"error_type": type(e).__name__, "error_message": str(e), "status_code": e.status_code if hasattr(e, 'status_code') else None}}
     except anthropic.APIConnectionError as e:
+        # This error can occur if the base URL is incorrect or unreachable,
+        # even if the SDK usually handles the base URL.
         return {"status": "error", "message": "Connection error. Check API URL or network.", "details": {"error_type": type(e).__name__, "error_message": str(e)}}
     except anthropic.RateLimitError as e:
         return {"status": "error", "message": "Rate limit exceeded.", "details": {"error_type": type(e).__name__, "error_message": str(e), "status_code": e.status_code if hasattr(e, 'status_code') else None}}
-    except anthropic.APIStatusError as e: # Catch other API status errors (4xx, 5xx)
+    except anthropic.APIStatusError as e: 
         return {"status": "error", "message": f"API error (status {e.status_code}).", "details": {"error_type": type(e).__name__, "error_message": str(e.response.text if e.response else e), "status_code": e.status_code}}
-    except anthropic.APIError as e: # Catch-all for other Anthropic SDK errors
+    except anthropic.APIError as e: 
         return {"status": "error", "message": "An Anthropic API error occurred.", "details": {"error_type": type(e).__name__, "error_message": str(e)}}
-    except Exception as e: # Catch any other unexpected errors
-        return {"status": "error", "message": "An unexpected error occurred during the test.", "details": {"error_type": type(e).__name__, "error_message": str(e)}}
+    except Exception as e: 
+        return {"status": "error", "message": "An unexpected error occurred during the Anthropic test.", "details": {"error_type": type(e).__name__, "error_message": str(e)}}
 
-async def get_static_completion(
+def test_endpoint(endpoint) -> Dict[str, Any]: # endpoint is an AIEndpoint model instance
+    """
+    Tests an API endpoint based on its provider.
+    Args:
+        endpoint: The AIEndpoint model instance.
+    Returns:
+        A dictionary with 'status', 'message', and 'details'.
+    """
+    if not endpoint.apikey:
+        return {"status": "error", "message": "API key is missing for this endpoint.", "details": None}
+
+    if endpoint.provider == 'anthropic':
+        return _test_anthropic_internal(api_key=endpoint.apikey)
+    # elif endpoint.provider == 'openai':
+    #     return _test_openai_internal(api_key=endpoint.apikey) # To be implemented
+    else:
+        return {"status": "error", "message": f"Testing not implemented for provider: {endpoint.provider}", "details": None}
+
+
+async def _get_static_completion_anthropic_internal(
     ai_model_id: str,
-    api_base_url: str, # Anthropic SDK might not use this directly if ANTHROPIC_API_URL is set or using default
     api_key: str,
     messages: List[ChatMessage],
     temperature: float = None,
@@ -51,23 +95,12 @@ async def get_static_completion(
 ) -> Dict[str, Any]:
     """
     Makes a static (non-streaming) API call to an Anthropic model.
-
-    Args:
-        ai_model_id: The identifier of the AI model to use (e.g., 'claude-3-opus-20240229').
-        api_base_url: The base URL for the Anthropic API. If None, the SDK default or ANTHROPIC_API_URL env var is used.
-        api_key: The API key for authentication.
-        messages: A list of message objects for the conversation.
-        temperature: The temperature setting for the AI model (0.0 to 1.0).
-        max_tokens: The maximum number of tokens to generate.
-        **kwargs: Additional parameters to pass to the API (e.g., top_p, top_k, system prompt).
-
-    Returns:
-        The API response as a dictionary.
+    Returns a standardized dictionary.
     """
     try:
-        client = anthropic.Anthropic(api_key=api_key, base_url=api_base_url if api_base_url else None, http_client=http_client_without_ssl_verification)
+        # Base URL is handled by the SDK environment variables or defaults
+        client = anthropic.Anthropic(api_key=api_key, http_client=http_client_without_ssl_verification)
         
-        # Prepare payload, system prompt can be passed via kwargs or extracted if needed
         payload = {
             "model": ai_model_id,
             "messages": messages,
@@ -75,75 +108,97 @@ async def get_static_completion(
         if temperature is not None:
             payload["temperature"] = temperature
         if max_tokens is not None:
-            # Anthropic's Python SDK uses max_tokens for the parameter name
             payload["max_tokens"] = max_tokens
         
-        # Handle system prompt if provided in messages or kwargs
-        # Anthropic expects system prompt as a top-level parameter
         system_prompt_message = next((msg for msg in messages if msg.get("role") == "system"), None)
         if system_prompt_message:
             payload["system"] = system_prompt_message["content"]
-            # Remove system message from messages list if it was there
             payload["messages"] = [msg for msg in messages if msg.get("role") != "system"]
-        elif "system" in kwargs:
+        elif "system" in kwargs: # Allow passing system prompt via kwargs as well
             payload["system"] = kwargs.pop("system")
 
-        payload.update(kwargs) # Add any other specific params
-
-        print(payload)
-        response = client.messages.create(**payload)
+        payload.update(kwargs)
         
-        # Convert the response object to a dictionary for consistent return type
-        # This structure aims to mimic the previous httpx response.json()
-        # You might need to adjust based on what parts of the response object are needed
-        response_dict = {
-            "id": response.id,
-            "type": response.type,
-            "role": response.role,
-            "content": [{"type": content_block.type, "text": content_block.text} for content_block in response.content],
-            "model": response.model,
-            "stop_reason": response.stop_reason,
-            "stop_sequence": response.stop_sequence,
-            "usage": {"input_tokens": response.usage.input_tokens, "output_tokens": response.usage.output_tokens},
+        api_response = client.messages.create(**payload)
+        
+        # Normalize to standard format
+        # For Anthropic, content is a list of blocks. We'll concatenate text blocks.
+        response_text_content = ""
+        if api_response.content:
+            for block in api_response.content:
+                if hasattr(block, 'text'):
+                    response_text_content += block.text
+        
+        return {
+            "id": api_response.id,
+            "content": response_text_content,
+            "role": api_response.role, # Should be 'assistant'
+            "model_used": api_response.model,
+            "stop_reason": api_response.stop_reason,
+            "usage": {"input_tokens": api_response.usage.input_tokens, "output_tokens": api_response.usage.output_tokens},
+            "error": None
         }
-        return response_dict
     except anthropic.APIStatusError as e:
-        print(f"Anthropic API Error: {e.status_code} - {e.response.text}")
-        # Re-raise or handle as custom exception
-        raise
+        error_payload = {"type": type(e).__name__, "message": str(e.response.text if e.response else e), "status_code": e.status_code}
+        print(f"Anthropic API Error (Static): {error_payload}")
+        return {"id": None, "content": None, "role": "error", "model_used": ai_model_id, "stop_reason": "error", "usage": None, "error": error_payload}
     except anthropic.APIConnectionError as e:
-        print(f"Anthropic Connection Error: {e}")
-        raise
-    except anthropic.APIError as e:
-        print(f"Anthropic API Error: {e}")
-        raise
+        error_payload = {"type": type(e).__name__, "message": str(e)}
+        print(f"Anthropic Connection Error (Static): {error_payload}")
+        return {"id": None, "content": None, "role": "error", "model_used": ai_model_id, "stop_reason": "error", "usage": None, "error": error_payload}
+    except Exception as e: # Catch any other unexpected errors
+        error_payload = {"type": type(e).__name__, "message": str(e)}
+        print(f"Unexpected Error (Static Anthropic): {error_payload}")
+        return {"id": None, "content": None, "role": "error", "model_used": ai_model_id, "stop_reason": "error", "usage": None, "error": error_payload}
 
 
-async def stream_completion(
+async def get_static_completion(
+    model, # AIModel instance
+    messages: List[ChatMessage],
+    temperature: float = None,
+    max_tokens: int = None,
+    **kwargs: Any
+) -> Dict[str, Any]:
+    """
+    Public function for static completion. Dispatches to provider-specific implementation.
+    """
+    if not model.endpoint or not model.endpoint.apikey:
+        return {"id": None, "content": None, "role": "error", "model_used": model.model_id, "stop_reason": "error", "usage": None, "error": {"type": "ConfigurationError", "message": "Endpoint or API key is missing."}}
+
+    # Use model's default temp/tokens if not provided in call
+    effective_temperature = temperature if temperature is not None else model.default_temperature
+    effective_max_tokens = max_tokens if max_tokens is not None else model.default_max_tokens
+
+    if model.endpoint.provider == 'anthropic':
+        return await _get_static_completion_anthropic_internal(
+            ai_model_id=model.model_id,
+            api_key=model.endpoint.apikey,
+            messages=messages,
+            temperature=effective_temperature,
+            max_tokens=effective_max_tokens,
+            **kwargs
+        )
+    # elif model.endpoint.provider == 'openai':
+    #     return await _get_static_completion_openai_internal(...) # To be implemented
+    else:
+        return {"id": None, "content": None, "role": "error", "model_used": model.model_id, "stop_reason": "error", "usage": None, "error": {"type": "UnsupportedProviderError", "message": f"Static completion not implemented for provider: {model.endpoint.provider}"}}
+
+
+async def _stream_completion_anthropic_internal(
     ai_model_id: str,
-    api_base_url: str, # Anthropic SDK might not use this directly
     api_key: str,
     messages: List[ChatMessage],
-    on_chunk_callback: Callable[[Dict[str, Any]], Awaitable[None]],
+    on_chunk_callback: Callable[[Dict[str, Any]], Awaitable[None]], # Callback expects standardized chunk
     temperature: float = None,
     max_tokens: int = None,
     **kwargs: Any
 ):
     """
-    Makes a streaming API call to an Anthropic model and invokes a callback for each chunk.
-
-    Args:
-        ai_model_id: The identifier of the AI model to use.
-        api_base_url: The base URL for the Anthropic API.
-        api_key: The API key for authentication.
-        messages: A list of message objects for the conversation.
-        on_chunk_callback: An async function to call with each received data chunk.
-        temperature: The temperature setting for the AI model.
-        max_tokens: The maximum number of tokens to generate.
-        **kwargs: Additional parameters to pass to the API.
+    Makes a streaming API call to an Anthropic model and invokes a callback with standardized chunks.
     """
     try:
-        client = AsyncAnthropic(api_key=api_key, base_url=api_base_url if api_base_url else None, http_client=http_async_client_without_ssl_verification)
+        # Base URL is handled by the SDK environment variables or defaults
+        client = AsyncAnthropic(api_key=api_key, http_client=http_async_client_without_ssl_verification)
         
         payload = {
             "model": ai_model_id,
@@ -152,9 +207,8 @@ async def stream_completion(
         if temperature is not None:
             payload["temperature"] = temperature
         if max_tokens is not None:
-            payload["max_tokens"] = max_tokens # SDK uses max_tokens
+            payload["max_tokens"] = max_tokens
 
-        # Handle system prompt
         system_prompt_message = next((msg for msg in messages if msg.get("role") == "system"), None)
         if system_prompt_message:
             payload["system"] = system_prompt_message["content"]
@@ -166,83 +220,97 @@ async def stream_completion(
 
         async with client.messages.stream(**payload) as stream:
             async for event in stream:
-                chunk_data = {}
+                standardized_chunk = None
                 if event.type == "message_start":
-                    # Contains metadata about the message, including usage for input tokens
-                    chunk_data = {
-                        "type": "message_start",
-                        "message": {
+                    standardized_chunk = {
+                        "type": "metadata", 
+                        "data": {
                             "id": event.message.id,
-                            "type": event.message.type,
-                            "role": event.message.role,
-                            "model": event.message.model,
-                            "usage": {"input_tokens": event.message.usage.input_tokens}
+                            "input_tokens": event.message.usage.input_tokens
                         }
-                    }
-                elif event.type == "content_block_start":
-                    chunk_data = {
-                        "type": "content_block_start",
-                        "index": event.index,
-                        "content_block": {"type": event.content_block.type}
                     }
                 elif event.type == "content_block_delta":
-                    if event.delta.type == "text_delta":
-                        chunk_data = {
-                            "type": "content_block_delta",
-                            "index": event.index,
-                            "delta": {"type": "text_delta", "text": event.delta.text}
-                        }
-                elif event.type == "content_block_stop":
-                     chunk_data = {
-                        "type": "content_block_stop",
-                        "index": event.index
-                    }
-                elif event.type == "message_delta":
-                    # Contains usage for output tokens and stop reason
-                    chunk_data = {
-                        "type": "message_delta",
-                        "delta": {
-                            "stop_reason": event.delta.stop_reason,
-                            "stop_sequence": event.delta.stop_sequence,
-                        },
+                    if event.delta.type == "text_delta" and event.delta.text:
+                        standardized_chunk = {"type": "delta", "text_delta": event.delta.text}
+                elif event.type == "message_delta": # Anthropic sends this for stop_reason and output_tokens
+                    standardized_chunk = {
+                        "type": "stop", 
+                        "stop_reason": event.delta.stop_reason,
                         "usage": {"output_tokens": event.usage.output_tokens}
                     }
                 elif event.type == "message_stop":
-                    # Final event indicating the stream is complete.
-                    chunk_data = {"type": "message_stop"}
-                
-                if chunk_data:
-                    await on_chunk_callback(chunk_data)
+                    # This is a final confirmation, often doesn't carry new data beyond what message_delta provided.
+                    # We can choose to send a specific "final_stop" or rely on message_delta's stop.
+                    # For simplicity, we can ignore this if message_delta already signals stop.
+                    # If message_delta didn't have usage, this might be a place to confirm it.
+                    pass # Already handled by message_delta for stop_reason and usage
+
+                if standardized_chunk:
+                    await on_chunk_callback(standardized_chunk)
 
     except anthropic.APIStatusError as e:
-        error_detail = {"error": True, "status_code": e.status_code, "detail": e.response.text if e.response else str(e)}
-        print(f"Anthropic API Error during stream: {error_detail}")
+        error_detail = {"type": "error", "message": f"API Error (status {e.status_code}): {e.response.text if e.response else str(e)}"}
         await on_chunk_callback(error_detail)
-        raise
     except anthropic.APIConnectionError as e:
-        error_detail = {"error": True, "detail": str(e)}
-        print(f"Anthropic Connection Error during stream: {error_detail}")
+        error_detail = {"type": "error", "message": f"Connection Error: {str(e)}"}
         await on_chunk_callback(error_detail)
-        raise
-    except anthropic.APIError as e: # Catch other Anthropic errors
-        error_detail = {"error": True, "detail": str(e)}
-        print(f"Anthropic API Error during stream: {error_detail}")
+    except Exception as e:
+        error_detail = {"type": "error", "message": f"Unexpected error during Anthropic stream: {str(e)}"}
         await on_chunk_callback(error_detail)
-        raise
-    except Exception as e: # Catch any other unexpected errors
-        error_detail = {"error": True, "detail": f"Unexpected error during stream: {str(e)}"}
-        print(error_detail["detail"])
-        await on_chunk_callback(error_detail)
-        raise
+
+async def stream_completion(
+    model, # AIModel instance
+    messages: List[ChatMessage],
+    on_chunk_callback: Callable[[Dict[str, Any]], Awaitable[None]],
+    temperature: float = None,
+    max_tokens: int = None,
+    **kwargs: Any
+):
+    """
+    Public function for streaming completion. Dispatches to provider-specific implementation.
+    """
+    if not model.endpoint or not model.endpoint.apikey:
+        await on_chunk_callback({"type": "error", "message": "Endpoint or API key is missing."})
+        return
+
+    effective_temperature = temperature if temperature is not None else model.default_temperature
+    effective_max_tokens = max_tokens if max_tokens is not None else model.default_max_tokens
+
+    if model.endpoint.provider == 'anthropic':
+        await _stream_completion_anthropic_internal(
+            ai_model_id=model.model_id,
+            api_key=model.endpoint.apikey,
+            messages=messages,
+            on_chunk_callback=on_chunk_callback,
+            temperature=effective_temperature,
+            max_tokens=effective_max_tokens,
+            **kwargs
+        )
+    # elif model.endpoint.provider == 'openai':
+    #     await _stream_completion_openai_internal(...) # To be implemented
+    else:
+        await on_chunk_callback({"type": "error", "message": f"Streaming not implemented for provider: {model.endpoint.provider}"})
+
 
 # Example usage (conceptual, would be called from views.py or consumers.py):
 # async def example_static_call(ai_model_obj): # Assuming ai_model_obj has needed attributes
-#     response = await get_static_completion(
-#         ai_model_id=ai_model_obj.model_id, # e.g., "claude-3-opus-20240229"
-#         api_base_url=ai_model_obj.endpoint.url, # Optional, SDK might use ANTHROPIC_API_URL
-#         api_key=ai_model_obj.endpoint.apikey,
+#     response = await get_static_completion( # Now takes the model object
+#         model=ai_model_obj, 
 #         messages=[{"role": "user", "content": "Tell me a joke."}],
-#         temperature=ai_model_obj.default_temperature or 0.7,
+#         # temperature and max_tokens can be omitted to use model defaults
+#     )
+#     print(response)
+
+# async def example_streaming_call(ai_model_obj):
+#     async def my_chunk_handler(chunk): # Expects standardized chunk
+#         # In ChatConsumer, this would be self.send(text_data=json.dumps(chunk))
+#         print(json.dumps(chunk)) 
+
+#     await stream_completion( # Now takes the model object
+#         model=ai_model_obj,
+#         messages=[{"role": "user", "content": "Write a short story about a brave robot."}],
+#         on_chunk_callback=my_chunk_handler,
+#         # temperature and max_tokens can be omitted
 #         max_tokens=150 # Example max_tokens
 #     )
 #     print(response)
