@@ -49,7 +49,7 @@
             {% for item in endpoints_with_models %}
             <div class="bg-gray-700 p-4 rounded-lg">
                 <div class="flex justify-between items-center mb-3">
-                    <h4 class="text-lg font-semibold">{{ item.endpoint.name }} <span class="text-sm text-gray-400">({{ item.endpoint.url }})</span></h4>
+                    <h4 class="text-lg font-semibold">{{ item.endpoint.name }} <span class="text-sm text-gray-400">({{ item.endpoint.provider }})</span></h4>
                     <div class="space-x-2">
                         <a href="{% url 'api_endpoint_edit' item.endpoint.pk %}" class="text-xs bg-yellow-500 hover:bg-yellow-600 text-black py-1 px-3 rounded-md">Edit Endpoint</a>
                         <form method="post" action="{% url 'api_endpoint_delete' item.endpoint.pk %}" class="inline" onsubmit="return confirm('Are you sure you want to delete the endpoint \'{{ item.endpoint.name }}\' and all its models?');">
