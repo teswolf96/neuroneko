@@ -178,7 +178,7 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
             ai_model_instance = await database_sync_to_async(AIModel.objects.select_related('endpoint').get)(id=model_id, endpoint__user=self.user)
             user_settings = await database_sync_to_async(UserSettings.objects.get)(user=self.user)
             
-            temperature = chat.ai_temperatue if chat.ai_temperatue is not None else user_settings.default_temp
+            temperature = chat.ai_temperature if chat.ai_temperature is not None else user_settings.default_temp
             max_tokens = ai_model_instance.default_max_tokens # Assuming this field exists, or use a global default
 
             # 2. Save User Message
@@ -345,7 +345,7 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
             ai_model_instance = await database_sync_to_async(AIModel.objects.select_related('endpoint').get)(id=model_id, endpoint__user=self.user)
             user_settings = await database_sync_to_async(UserSettings.objects.get)(user=self.user)
             
-            temperature = chat.ai_temperatue if chat.ai_temperatue is not None else user_settings.default_temp
+            temperature = chat.ai_temperature if chat.ai_temperature is not None else user_settings.default_temp
             max_tokens = ai_model_instance.default_max_tokens
 
             parent_message = await database_sync_to_async(Message.objects.get)(id=parent_message_id, chat=chat)
@@ -452,7 +452,7 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
             ai_model_instance = await database_sync_to_async(AIModel.objects.select_related('endpoint').get)(id=model_id, endpoint__user=self.user)
             user_settings = await database_sync_to_async(UserSettings.objects.get)(user=self.user)
 
-            temperature = chat.ai_temperatue if chat.ai_temperatue is not None else user_settings.default_temp
+            temperature = chat.ai_temperature if chat.ai_temperature is not None else user_settings.default_temp
             max_tokens = ai_model_instance.default_max_tokens
 
             target_message = await database_sync_to_async(Message.objects.select_related('parent').get)(id=target_message_id, chat=chat)
