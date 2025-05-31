@@ -1,7 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
-from django.contrib.auth import login, logout
+from django.contrib.auth.forms import UserCreationForm, AuthenticationForm, PasswordChangeForm
+from django.contrib.auth import login, logout, update_session_auth_hash
 from django.urls import reverse
 from django.http import JsonResponse, HttpResponseForbidden, HttpResponseBadRequest
 from django.views.decorators.http import require_POST
@@ -67,15 +67,34 @@ def index_view(request):
 @login_required
 def user_settings_view(request):
     user_settings, created = UserSettings.objects.get_or_create(user=request.user)
+    settings_form = UserSettingsForm(instance=user_settings, user=request.user)
+    password_form = PasswordChangeForm(user=request.user)
+
     if request.method == 'POST':
-        form = UserSettingsForm(request.POST, instance=user_settings, user=request.user)
-        if form.is_valid():
-            form.save()
-            messages.success(request, 'Settings updated successfully!')
-            return redirect('user_settings')
+        action = request.POST.get('action')
+        if action == 'update_settings':
+            settings_form = UserSettingsForm(request.POST, instance=user_settings, user=request.user)
+            if settings_form.is_valid():
+                settings_form.save()
+                messages.success(request, 'Settings updated successfully!')
+                return redirect('user_settings')
+        elif action == 'change_password':
+            password_form = PasswordChangeForm(user=request.user, data=request.POST)
+            if password_form.is_valid():
+                user = password_form.save()
+                update_session_auth_hash(request, user)  # Important!
+                messages.success(request, 'Your password was successfully updated!')
+                return redirect('user_settings')
+            else:
+                messages.error(request, 'Please correct the error below.')
     else:
-        form = UserSettingsForm(instance=user_settings, user=request.user)
-    return render(request, 'chat/user_settings.html', {'form': form})
+        settings_form = UserSettingsForm(instance=user_settings, user=request.user)
+        password_form = PasswordChangeForm(user=request.user)
+
+    return render(request, 'chat/user_settings.html', {
+        'settings_form': settings_form,
+        'password_form': password_form
+    })
 
 @login_required
 def manage_prompts_view(request):
