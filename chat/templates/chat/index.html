@@ -79,6 +79,13 @@
         #idea-list-container .prompt-item:last-child { /* Apply to both idea and prompt items */
             border-bottom: none;
         }
+        @keyframes highlight-fade {
+            0% { background-color: rgba(96, 165, 250, 0.4); }
+            100% { background-color: transparent; }
+        }
+        .message-highlight {
+            animation: highlight-fade 2s ease-out;
+        }
     </style>
     {% block extra_head %}{% endblock %}
 </head>
@@ -2866,14 +2873,62 @@
 
                                 resultDiv.addEventListener('click', function() {
                                     const chatIdToLoad = this.dataset.chatId;
-                                    const chatItemInSidebar = document.querySelector(`.chat-item .chat-link[data-chat-id="${chatIdToLoad}"]`);
-                                    if (chatItemInSidebar) {
-                                        chatItemInSidebar.closest('.chat-item').click();
-                                        advancedSearchModal.style.display = 'none'; // Close modal after clicking
-                                        // Scrolling to specific message is a future enhancement
-                                    } else {
-                                        alert('Could not find the chat in the sidebar.');
-                                    }
+                                    const messageId = this.dataset.messageId;
+                                    
+                                    // Show loading indicator
+                                    advancedSearchResultsContainer.innerHTML = '<p class="text-gray-400 text-center">Loading message...</p>';
+                                    
+                                    // Step 1: Activate the message path
+                                    fetch(`/api/chat/${chatIdToLoad}/activate_message_path/${messageId}/`, {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'X-CSRFToken': '{{ csrf_token }}'
+                                        },
+                                    })
+                                    .then(response => {
+                                        if (!response.ok) {
+                                            return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                                        }
+                                        return response.json();
+                                    })
+                                    .then(data => {
+                                        if (data.status === 'success') {
+                                            // Step 2: Find and click the chat in the sidebar
+                                            const chatItemInSidebar = document.querySelector(`.chat-item .chat-link[data-chat-id="${chatIdToLoad}"]`);
+                                            if (chatItemInSidebar) {
+                                                chatItemInSidebar.closest('.chat-item').click();
+                                                
+                                                // Step 3: After chat loads, scroll to the specific message
+                                                // We need a small delay to ensure the chat is fully loaded
+                                                setTimeout(() => {
+                                                    const targetMessageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+                                                    if (targetMessageElement) {
+                                                        // Scroll the message into view with a highlight effect
+                                                        targetMessageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                        
+                                                        // Add a temporary highlight effect using our animation class
+                                                        targetMessageElement.classList.add('message-highlight');
+                                                        setTimeout(() => {
+                                                            targetMessageElement.classList.remove('message-highlight');
+                                                        }, 2000); // Remove highlight after 2 seconds
+                                                    }
+                                                    
+                                                    // Close the search modal
+                                                    advancedSearchModal.style.display = 'none';
+                                                }, 300); // Adjusted timeout for chat load
+                                            } else {
+                                                throw new Error('Could not find the chat in the sidebar.');
+                                            }
+                                        } else {
+                                            throw new Error(data.error || 'Unknown error activating message path');
+                                        }
+                                    })
+                                    .catch(error => {
+                                        console.error('Error navigating to message:', error);
+                                        alert('Error navigating to message: ' + error.message);
+                                        advancedSearchModal.style.display = 'none'; // Close modal on error
+                                    });
                                 });
                                 advancedSearchResultsContainer.appendChild(resultDiv);
                             });

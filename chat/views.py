@@ -1344,3 +1344,33 @@ def advanced_search_api(request):
     # For now, title matches appear first due to order of processing.
 
     return JsonResponse({'results': results})
+
+
+
+@login_required
+def activate_message_path(request, chat_id, message_id):
+    """
+    Activates the path from root to the specified message by setting
+    active_child_id values for all ancestor messages.
+    """
+    try:
+        chat = Chat.objects.get(id=chat_id, user=request.user)
+        target_message = Message.objects.get(id=message_id, chat=chat)
+        
+        # Start from the target message and work upward
+        current_message = target_message
+        while current_message.parent_id:
+            parent = Message.objects.get(id=current_message.parent_id)
+            parent.active_child_id = current_message.id
+            parent.save()
+            current_message = parent
+            
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Message path activated successfully'
+        })
+    except (Chat.DoesNotExist, Message.DoesNotExist) as e:
+        return JsonResponse({
+            'status': 'error',
+            'error': str(e)
+        }, status=404)
