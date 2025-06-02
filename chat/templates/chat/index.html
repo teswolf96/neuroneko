@@ -161,7 +161,7 @@
                 {% if item.name == "Other Chats" %}
                     {% if item.chats %} <!-- Only show "Other Chats" section if it has chats -->
                     <details class="group" open> <!-- Default open -->
-                        <summary class="text-sm font-bold text-gray-400 mt-4 mb-2 px-2 cursor-pointer list-none flex items-center unselectable">
+                        <summary class="text-sm font-bold text-gray-400  mb-2 px-2 cursor-pointer list-none flex items-center unselectable">
                              <!-- <span class="group-open:rotate-90 inline-block mr-1 transition-transform duration-150 transform">▶</span>--> {{ item.name }}
                         </summary>
                         <div class="ml-4 folder-drop-target" data-folder-id="other-chats-target"> <!-- Indent "Other Chats" contents, ADDED folder-drop-target and data-folder-id -->
