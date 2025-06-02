@@ -652,7 +652,7 @@
                     const textarea = document.createElement('textarea');
                     // When editing, we should edit the raw Markdown source, not the rendered HTML's textContent
                     textarea.value = msg.content; // Assuming msg.content holds the raw markdown
-                    textarea.classList.add('w-full', 'bg-gray-800', 'p-2', 'rounded', 'text-white', 'text-lg', 'border', 'border-gray-600', 'focus:border-blue-500', 'focus:ring-1', 'focus:ring-blue-500');
+                    textarea.classList.add('w-full', 'bg-gray-800', 'p-2', 'rounded', 'text-white', userChatFontSize, 'border', 'border-gray-600', 'focus:border-blue-500', 'focus:ring-1', 'focus:ring-blue-500');
                     textarea.style.resize = 'vertical'; // Allow vertical resize by user if browser supports
                     const minHeightPx = 40; // Approx 2 lines with padding
                     textarea.style.minHeight = `${minHeightPx}px`;
