@@ -283,7 +283,8 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                             'text_delta': delta_text
                         })
                 elif chunk_type == "stop":
-                    assistant_msg_obj.message = accumulated_content
+                    final_data = chunk_data.get("text_delta", "")
+                    assistant_msg_obj.message = accumulated_content + final_data
                     await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
                     
                     stop_reason = chunk_data.get("stop_reason")
@@ -399,7 +400,8 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                             'text_delta': delta_text
                         })
                 elif chunk_type == "stop":
-                    assistant_msg_obj.message = accumulated_content
+                    final_data = chunk_data.get("text_delta", "")
+                    assistant_msg_obj.message = accumulated_content + final_data
                     await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
                     stop_reason = chunk_data.get("stop_reason")
                     await self.send_to_client({
@@ -499,7 +501,8 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                             'text_delta': delta_text
                         })
                 elif chunk_type == "stop":
-                    target_message.message = accumulated_content
+                    final_data = chunk_data.get("text_delta", "")
+                    target_message.message = accumulated_content + final_data
                     await database_sync_to_async(target_message.save)(update_fields=['message'])
                     stop_reason = chunk_data.get("stop_reason")
                     await self.send_to_client({

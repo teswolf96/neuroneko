@@ -100,6 +100,25 @@ def _test_openai_internal(api_key: str) -> Dict[str, Any]:
     except Exception as e: 
         return {"status": "error", "message": "An unexpected error occurred during the OpenAI test.", "details": {"error_type": type(e).__name__, "error_message": str(e)}}
 
+def _test_google_internal(api_key: str) -> Dict[str, Any]:
+    """
+    Synchronously tests an OpenAI API endpoint by making a minimal call.
+    Args:
+        api_key: The API key.
+    Returns:
+        A dictionary with 'status', 'message', and 'details'.
+    """
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.list() # Limit to 1 to be minimal
+        return {
+            "status": "success",
+            "message": "Google endpoint test successful!"
+        }
+    except Exception as e: 
+        return {"status": "error", "message": "An unexpected error occurred during the Google test.", "details": {"error_type": type(e).__name__, "error_message": str(e)}}
+
+
 def test_endpoint(endpoint) -> Dict[str, Any]: # endpoint is an AIEndpoint model instance
     """
     Tests an API endpoint based on its provider.
@@ -115,6 +134,8 @@ def test_endpoint(endpoint) -> Dict[str, Any]: # endpoint is an AIEndpoint model
         return _test_anthropic_internal(api_key=endpoint.apikey)
     elif endpoint.provider == 'openai':
         return _test_openai_internal(api_key=endpoint.apikey)
+    elif endpoint.provider == 'google':
+        return _test_google_internal(api_key=endpoint.apikey)
     else:
         return {"status": "error", "message": f"Testing not implemented for provider: {endpoint.provider}", "details": None}
 
@@ -219,6 +240,7 @@ async def _get_static_completion_google_internal(
             temperature=temperature,
             response_mime_type="text/plain",
             system_instruction=system_prompt_message,
+            max_output_tokens=max_tokens,
         )
 
         response = client.models.generate_content(
@@ -236,15 +258,6 @@ async def _get_static_completion_google_internal(
             "usage": {"input_tokens": response.usage_metadata.prompt_token_count, "output_tokens": response.usage_metadata.candidates_token_count},
             "error": None
         }
-        
-    # except anthropic.APIStatusError as e:
-    #     error_payload = {"type": type(e).__name__, "message": str(e.response.text if e.response else e), "status_code": e.status_code}
-    #     print(f"Anthropic API Error (Static): {error_payload}")
-    #     return {"id": None, "content": None, "role": "error", "model_used": ai_model_id, "stop_reason": "error", "usage": None, "error": error_payload}
-    # except anthropic.APIConnectionError as e:
-    #     error_payload = {"type": type(e).__name__, "message": str(e)}
-    #     print(f"Anthropic Connection Error (Static): {error_payload}")
-    #     return {"id": None, "content": None, "role": "error", "model_used": ai_model_id, "stop_reason": "error", "usage": None, "error": error_payload}
     except Exception as e: # Catch any other unexpected errors
         error_payload = {"type": type(e).__name__, "message": str(e)}
         print(f"Unexpected Error (Static Google): {error_payload}")
@@ -374,6 +387,106 @@ async def _stream_completion_anthropic_internal(
         error_detail = {"type": "error", "message": f"Unexpected error during Anthropic stream: {str(e)}"}
         await on_chunk_callback(error_detail)
 
+
+
+
+async def _stream_completion_google_internal(
+    ai_model_id: str,
+    api_key: str,
+    messages: List[ChatMessage],
+    on_chunk_callback: Callable[[Dict[str, Any]], Awaitable[None]], # Callback expects standardized chunk
+    temperature: float = None,
+    max_tokens: int = None,
+    **kwargs: Any
+):
+    """
+    Makes a streaming API call to an Anthropic model and invokes a callback with standardized chunks.
+    """
+    try:
+        client = genai.Client(api_key=api_key)
+        contents = []
+        system_prompt_message = None
+
+        for msg in messages:
+            if msg.get('role') == "system":
+                system_prompt_message = msg.get('content')
+                continue
+            contents.append(
+                types.Content(
+                    role=msg.get('role'),
+                    parts=[types.Part.from_text(text=msg.get('content'))],
+                )
+            )
+
+        payload = {
+            'model': ai_model_id,
+            'contents': contents,
+            'config': {
+                'temperature': temperature,
+                'response_mime_type': 'text/plain',
+                'system_instruction': system_prompt_message,
+                'max_output_tokens': max_tokens,
+            }
+        }
+
+        # payload = {
+        #     "model": ai_model_id,
+        #     "messages": messages,
+        # }
+        # if temperature is not None:
+        #     payload["temperature"] = temperature
+        # if max_tokens is not None:
+        #     payload["max_tokens"] = max_tokens
+
+        # system_prompt_message = next((msg for msg in messages if msg.get("role") == "system"), None)
+        # if system_prompt_message:
+        #     payload["system"] = system_prompt_message["content"]
+        #     payload["messages"] = [msg for msg in messages if msg.get("role") != "system"]
+        # elif "system" in kwargs:
+        #     payload["system"] = kwargs.pop("system")
+            
+        # payload.update(kwargs)
+
+        async for chunk in await client.aio.models.generate_content_stream(**payload):
+            # async for event in chunk:
+                if not chunk.candidates[0].finish_reason:
+                    standardized_chunk = {"type": "delta", "text_delta": chunk.text}
+                else:
+                    standardized_chunk = {
+                        "text_delta": chunk.text,
+                        "type": "stop", 
+                        "stop_reason": chunk.candidates[0].finish_reason
+                    }
+                # if event.type == "message_start":
+                #     standardized_chunk = {
+                #         "type": "metadata", 
+                #         "data": {
+                #             "id": event.message.id,
+                #             "input_tokens": event.message.usage.input_tokens
+                #         }
+                #     }
+                # elif event.type == "content_block_delta":
+                #     if event.delta.type == "text_delta" and event.delta.text:
+                #         standardized_chunk = {"type": "delta", "text_delta": event.delta.text}
+                # elif event.type == "message_delta": # Anthropic sends this for stop_reason and output_tokens
+                #     standardized_chunk = {
+                #         "type": "stop", 
+                #         "stop_reason": event.delta.stop_reason,
+                #         "usage": {"output_tokens": event.usage.output_tokens}
+                #     }
+                # elif event.type == "message_stop":
+                #     # This is a final confirmation, often doesn't carry new data beyond what message_delta provided.
+                #     # We can choose to send a specific "final_stop" or rely on message_delta's stop.
+                #     # For simplicity, we can ignore this if message_delta already signals stop.
+                #     # If message_delta didn't have usage, this might be a place to confirm it.
+                #     pass # Already handled by message_delta for stop_reason and usage
+
+                if standardized_chunk:
+                    await on_chunk_callback(standardized_chunk)
+    except Exception as e:
+        error_detail = {"type": "error", "message": f"Unexpected error during Google stream: {str(e)}"}
+        await on_chunk_callback(error_detail)
+
 async def stream_completion(
     model, # AIModel instance
     messages: List[ChatMessage],
@@ -404,6 +517,16 @@ async def stream_completion(
         )
     elif model.endpoint.provider == 'openai':
         await _stream_completion_openai_internal(
+            ai_model_id=model.model_id,
+            api_key=model.endpoint.apikey,
+            messages=messages,
+            on_chunk_callback=on_chunk_callback,
+            temperature=effective_temperature,
+            max_tokens=effective_max_tokens,
+            **kwargs
+        )
+    elif model.endpoint.provider == 'google':
+        await _stream_completion_google_internal(
             ai_model_id=model.model_id,
             api_key=model.endpoint.apikey,
             messages=messages,

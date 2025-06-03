@@ -1,4 +1,7 @@
 import anthropic
+from google import genai
+from google.genai import types
+
 import httpx
 import tiktoken # Added tiktoken import
 from typing import List, Dict, Optional
@@ -34,6 +37,34 @@ def _count_anthropic_tokens_internal(api_key: str, model_id_str: str, messages_f
         return 0 # Fallback to 0 on other errors
 
 
+def _count_google_tokens_internal(api_key: str, model_id_str: str, messages_for_api: List[Dict[str, str]], system_prompt_for_api: Optional[str] = None) -> int:
+    """
+    Internal function to count tokens for Anthropic models.
+    Note: The Anthropic SDK's direct count_tokens for messages API might require specific versions or handling.
+    This implementation assumes client.messages.count_tokens exists and works as expected.
+    """
+    try:
+        client = genai.Client(api_key=api_key)
+        contents = ""
+        system_prompt_message = None
+
+        for msg in messages_for_api:
+            if msg.get('role') == "system":
+                system_prompt_message = msg.get('content')
+                continue
+            contents += msg.get('content')
+
+        result = client.models.count_tokens(
+            model=model_id_str,
+            contents=contents
+        )
+        return result.total_tokens
+    #     return int(result.input_tokens)
+    except Exception as e:
+        print(f"Error counting Google tokens: {e}")
+        return 0 # Fallback to 0 on other errors
+    
+
 def count_tokens(model, messages_for_api: List[Dict[str, str]], system_prompt_for_api: Optional[str] = None) -> int:
     """
     Public function to count tokens. Dispatches to provider-specific implementation.
@@ -57,6 +88,13 @@ def count_tokens(model, messages_for_api: List[Dict[str, str]], system_prompt_fo
         )
     elif model.endpoint.provider == 'openai':
         return _count_openai_tokens_internal(model_id_str=model.model_id, messages_for_api=messages_for_api, system_prompt_for_api=system_prompt_for_api)
+    elif model.endpoint.provider == 'google':
+        return _count_google_tokens_internal(
+            api_key=model.endpoint.apikey,
+            model_id_str=model.model_id,
+            messages_for_api=messages_for_api,
+            system_prompt_for_api=system_prompt_for_api
+        )
     else:
         print(f"Token counting not implemented for provider: {model.endpoint.provider}")
         # Fallback for unknown providers: very rough character-based estimate
