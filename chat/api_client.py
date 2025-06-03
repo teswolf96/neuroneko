@@ -7,6 +7,9 @@ from openai import APIError as OpenAIAPIError, AuthenticationError as OpenAIAuth
 import json
 from typing import Callable, Awaitable, Dict, Any, List
 import httpx
+from google import genai
+from google.genai import types
+
 http_client_without_ssl_verification = httpx.Client(verify=False)
 http_async_client_without_ssl_verification = httpx.AsyncClient(verify=False)
 
@@ -183,6 +186,72 @@ async def _get_static_completion_anthropic_internal(
         return {"id": None, "content": None, "role": "error", "model_used": ai_model_id, "stop_reason": "error", "usage": None, "error": error_payload}
 
 
+async def _get_static_completion_google_internal(
+    ai_model_id: str,
+    api_key: str,
+    messages: List,
+    temperature: float = None,
+    max_tokens: int = None,
+    **kwargs: Any
+) -> Dict[str, Any]:
+    """
+    Makes a static (non-streaming) API call to an Anthropic model.
+    Returns a standardized dictionary.
+    """
+    try:
+        # Base URL is handled by the SDK environment variables or defaults
+        client = genai.Client(api_key=api_key)
+        contents = []
+        system_prompt_message = None
+
+        for msg in messages:
+            if msg.get('role') == "system":
+                system_prompt_message = msg.get('content')
+                continue
+            contents.append(
+                types.Content(
+                    role=msg.get('role'),
+                    parts=[types.Part.from_text(text=msg.get('content'))],
+                )
+            )
+
+        generate_content_config = types.GenerateContentConfig(
+            temperature=temperature,
+            response_mime_type="text/plain",
+            system_instruction=system_prompt_message,
+        )
+
+        response = client.models.generate_content(
+            model=ai_model_id,
+            contents=contents,
+            config=generate_content_config,
+        )
+
+        return {
+            "id": response.response_id,
+            "content": response.text,
+            "role": 'model',
+            "model_used": response.model_version,
+            "stop_reason": response.candidates[0].finish_reason,
+            "usage": {"input_tokens": response.usage_metadata.prompt_token_count, "output_tokens": response.usage_metadata.candidates_token_count},
+            "error": None
+        }
+        
+    # except anthropic.APIStatusError as e:
+    #     error_payload = {"type": type(e).__name__, "message": str(e.response.text if e.response else e), "status_code": e.status_code}
+    #     print(f"Anthropic API Error (Static): {error_payload}")
+    #     return {"id": None, "content": None, "role": "error", "model_used": ai_model_id, "stop_reason": "error", "usage": None, "error": error_payload}
+    # except anthropic.APIConnectionError as e:
+    #     error_payload = {"type": type(e).__name__, "message": str(e)}
+    #     print(f"Anthropic Connection Error (Static): {error_payload}")
+    #     return {"id": None, "content": None, "role": "error", "model_used": ai_model_id, "stop_reason": "error", "usage": None, "error": error_payload}
+    except Exception as e: # Catch any other unexpected errors
+        error_payload = {"type": type(e).__name__, "message": str(e)}
+        print(f"Unexpected Error (Static Google): {error_payload}")
+        return {"id": None, "content": None, "role": "error", "model_used": ai_model_id, "stop_reason": "error", "usage": None, "error": error_payload}
+
+
+
 async def get_static_completion(
     model, # AIModel instance
     messages: List[ChatMessage],
@@ -211,6 +280,15 @@ async def get_static_completion(
         )
     elif model.endpoint.provider == 'openai':
         return await _get_static_completion_openai_internal(
+            ai_model_id=model.model_id,
+            api_key=model.endpoint.apikey,
+            messages=messages,
+            temperature=effective_temperature,
+            max_tokens=effective_max_tokens,
+            **kwargs
+        )
+    elif model.endpoint.provider == 'google':
+        return await _get_static_completion_google_internal(
             ai_model_id=model.model_id,
             api_key=model.endpoint.apikey,
             messages=messages,
@@ -527,3 +605,20 @@ async def _stream_completion_openai_internal(
     except Exception as e:
         error_detail = {"type": "error", "message": f"Unexpected error during OpenAI stream: {str(e)}"}
         await on_chunk_callback(error_detail)
+
+
+if __name__ == "__main__":
+    prompt_messages = [
+        {"role": "system", "content": "You are a friendly and helpful AI assistant."},
+        {"role": "user", "content": "Hello!"},
+        {"role": "model", "content": "Hi. how are you?"},
+        {"role": "user", "content": "Good, how are you?"},
+    ]
+    _get_static_completion_google_internal(
+        ai_model_id= 'gemini-2.0-flash',
+        api_key= 'AIzaSyAxqeJb4FTYfd1ZO9-u43XIjXU4gE5TtTc',
+        messages=prompt_messages,
+        on_chunk_callback=None,
+        temperature=1.0,
+        max_tokens=10000,
+    )
