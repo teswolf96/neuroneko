@@ -1063,27 +1063,47 @@
                                 if (targetChatLink) targetChatLink.closest('.chat-item')?.click();
                             }
                             
-                            // Wait for DOM update after re-render
+                            // Wait for DOM update after re-render and then ensure WebSocket is open
                             setTimeout(() => {
                                 const newSiblingElementProse = chatMessagesContainerEl.querySelector(`[data-message-id="${newlyCreatedSiblingId}"] .prose`);
-                                if (newSiblingElementProse) {
-                                    currentAssistantMessageId = newlyCreatedSiblingId;
-                                    currentAssistantMessageContentEl = newSiblingElementProse;
-                                    currentAssistantMessageContentEl.dataset.rawContent = ""; // Ensure it's empty
-                                    currentAssistantMessageContentEl.innerHTML = "";
-                                    
-                                    chatSocket.send(JSON.stringify({
-                                        type: 'generate_into_empty_message',
-                                        target_message_id: newlyCreatedSiblingId,
-                                        model_id: selectedModelId
-                                    }));
-                                    // UI locking is already active. WebSocket 'unlock_sidebar' will handle unlocking.
-                                } else {
+                                if (!newSiblingElementProse) {
                                     console.error("Could not find new sibling element .prose in DOM after refresh for regeneration.");
                                     alert("Error preparing for regeneration. UI might be out of sync.");
                                     unlockGlobalUIAfterGenerationEnd(); // Unlock UI if we can't proceed
+                                    return;
                                 }
-                            }, 300); // Adjusted timeout, might need tuning
+
+                                currentAssistantMessageId = newlyCreatedSiblingId;
+                                currentAssistantMessageContentEl = newSiblingElementProse;
+                                currentAssistantMessageContentEl.dataset.rawContent = ""; // Ensure it's empty
+                                currentAssistantMessageContentEl.innerHTML = "";
+
+                                // Polling function to wait for WebSocket to be open
+                                let attempts = 0;
+                                const maxAttempts = 20; // e.g., 20 * 250ms = 5 seconds
+                                const interval = 250; // ms
+
+                                function attemptSendGenerate() {
+                                    if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+                                        chatSocket.send(JSON.stringify({
+                                            type: 'generate_into_empty_message',
+                                            target_message_id: newlyCreatedSiblingId,
+                                            model_id: selectedModelId
+                                        }));
+                                        // UI locking is already active. WebSocket 'unlock_sidebar' will handle unlocking.
+                                    } else if (attempts < maxAttempts) {
+                                        attempts++;
+                                        console.log(`WebSocket not open, attempt ${attempts}/${maxAttempts}. Retrying in ${interval}ms...`);
+                                        setTimeout(attemptSendGenerate, interval);
+                                    } else {
+                                        console.error("WebSocket failed to open after multiple attempts for regeneration.");
+                                        alert("Error: Could not connect to the server for regeneration. Please try again.");
+                                        unlockGlobalUIAfterGenerationEnd(); // Unlock UI
+                                    }
+                                }
+                                attemptSendGenerate(); // Start polling
+
+                            }, 150); // Initial short delay for DOM to update after click()
                         } else {
                             alert('Error creating sibling message for regeneration: ' + (siblingData.error || 'Unknown error'));
                             unlockGlobalUIAfterGenerationEnd(); // Unlock UI on error
