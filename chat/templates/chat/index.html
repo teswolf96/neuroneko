@@ -394,7 +394,28 @@
             // Strikethrough ~~text~~
             html = html.replace(/~~(.*?)~~/g, '<del>$1</del>');
             // Code block ```text```
-            html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+            // html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+            html = html.replace(/```(\w*\n)?([\s\S]*?)```/g, function(match, langPart, codeContent) {
+                const lang = langPart ? langPart.trim() : 'text'; // Default to 'text' if no language specified
+                // IMPORTANT: The codeContent itself should NOT be HTML escaped here if it's going into a <pre><code> block
+                // The browser will handle rendering it as text.
+                // However, if we were injecting it directly into other HTML, escaping would be crucial.
+                // For the <pre><code> structure, we want the raw code.
+                // The outer HTML structure is what we are building.
+                const rawCode = codeContent.trim(); // Use raw code for the <pre><code> block
+
+                return `
+            <div class="code-block-container">
+                <div class="code-block-header">
+                    <span class="language-name">${escapeHTML(lang)}</span>
+                    <button class="copy-code-button" title="Copy code">
+                        <span class="copy-icon">📄</span>
+                        <span>Copy code</span>
+                    </button>
+                </div>
+                <pre><code class="actual-code-content">${escapeHTML(rawCode)}</code></pre> 
+            </div>`;// Note: escapeHTML for rawCode inside <code> is correct to prevent XSS if code contains HTML-like syntax.
+            });
             return html;
         }
 
