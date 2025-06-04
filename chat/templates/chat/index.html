@@ -306,6 +306,27 @@
     {% block extra_js %}
     <script>
         const userChatFontSize = '{{ user.settings.chat_font_size|default:"text-base" }}';
+
+        // Simple HTML escape to avoid interpreting any markup from the model
+        function escapeHTML(str) {
+            return str
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+        }
+
+        // Very small Markdown renderer supporting bold, italics and strike-through
+        function renderMarkdownSafe(text) {
+            let html = escapeHTML(text);
+            // Bold **text** or __text__
+            html = html.replace(/(\*\*|__)(.*?)\1/g, '<strong>$2</strong>');
+            // Italic *text* or _text_
+            html = html.replace(/(\*|_)(.*?)\1/g, '<em>$2</em>');
+            // Strikethrough ~~text~~
+            html = html.replace(/~~(.*?)~~/g, '<del>$1</del>');
+            return html;
+        }
+
         document.addEventListener('DOMContentLoaded', function () {
             const chatItems = document.querySelectorAll('.chat-item');
             const chatModelSelectEl = document.getElementById('chat-model-select'); // Changed from chatModelNameEl
@@ -450,14 +471,14 @@
                                 const currentRawContent = currentAssistantMessageContentEl.dataset.rawContent || "";
                                 const newRawContent = currentRawContent + data.text_delta;
                                 currentAssistantMessageContentEl.dataset.rawContent = newRawContent;
-                                currentAssistantMessageContentEl.textContent = newRawContent;
+                                currentAssistantMessageContentEl.innerHTML = renderMarkdownSafe(newRawContent);
                                 chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
                             }
                             break;
                         case 'stream_end':
                             if (data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
                                 currentAssistantMessageContentEl.dataset.rawContent = data.full_content; // Store final raw content
-                                currentAssistantMessageContentEl.textContent = data.full_content;
+                                currentAssistantMessageContentEl.innerHTML = renderMarkdownSafe(data.full_content);
                             }
                             // UI reset is handled by unlock_sidebar which should follow
                             break;
@@ -573,7 +594,7 @@
                 const contentP = document.createElement('div'); // Changed to div to better accommodate block elements from Markdown
                 contentP.classList.add(userChatFontSize, 'prose', 'prose-sm', 'prose-invert', 'max-w-none', 'whitespace-pre-line'); // Added prose classes and whitespace-pre-line, and dynamic font size
                 const rawContent = msg.content || ''; // Ensure rawContent is defined
-                contentP.textContent = rawContent; // Use textContent for plain text
+                contentP.innerHTML = renderMarkdownSafe(rawContent); // Render basic Markdown safely
                 contentP.dataset.rawContent = rawContent; // Store raw content for easier updates
 
                 // Alternating grey backgrounds
@@ -688,7 +709,7 @@
                         .then(data => {
                             // Update the raw content store (msg.content) if possible, or re-fetch for consistency
                             msg.content = newText; // Update local msg object
-                            contentP.textContent = newText; // Use textContent for plain text
+                            contentP.innerHTML = renderMarkdownSafe(newText);
                             // Restore UI
                             editingInterfaceDiv.remove();
                             contentP.style.display = '';
@@ -752,7 +773,7 @@
                         .then(saveData => {
                             // Content saved successfully
                             msg.content = newText; // Update local msg object's content
-                            contentP.textContent = newText; // Use textContent for plain text
+                            contentP.innerHTML = renderMarkdownSafe(newText);
                             contentP.dataset.rawContent = newText;
 
                             // Restore UI from editing mode
