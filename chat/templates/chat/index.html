@@ -91,7 +91,7 @@
        .code-block-container {
             background-color: #1e293b;
             border-radius: 8px;
-            margin: 0.25em 0;
+            /* margin: 0.25em 0; */
             overflow: hidden;
             font-size: 0.875rem;
             font-family: 'Courier New', Courier, monospace;
@@ -154,7 +154,16 @@
         }
 
         .code-block-container pre code {
-            white-space: pre;
+            white-space: pre !important;
+        }
+        
+        /* Override whitespace-pre-line for code blocks */
+        .prose .code-block-container {
+            white-space: normal; /* Reset to normal first */
+        }
+        
+        .prose .code-block-container pre {
+            white-space: pre !important; /* Force pre whitespace in code blocks */
         }
     </style>
     {% block extra_head %}{% endblock %}
@@ -406,16 +415,16 @@
                 const rawCode = codeContent.trim(); // Use raw code for the <pre><code> block
 
                 return `
-            <div class="code-block-container">
-                <div class="code-block-header">
-                    <span class="language-name">${escapeHTML(lang)}</span>
-                    <button class="copy-code-button" title="Copy code">
-                        <span class="copy-icon">📄</span>
-                        <span>Copy code</span>
-                    </button>
-                </div>
-                <pre><code class="actual-code-content">${escapeHTML(rawCode)}</code></pre> 
-            </div>`;// Note: escapeHTML for rawCode inside <code> is correct to prevent XSS if code contains HTML-like syntax.
+                <div class="code-block-container">
+                    <div class="code-block-header">
+                        <span class="language-name">${escapeHTML(lang)}</span>
+                        <button class="copy-code-button" title="Copy code">
+                            <span class="copy-icon">📄</span>
+                            <span>Copy code</span>
+                        </button>
+                    </div>
+                    <pre><code class="actual-code-content">${escapeHTML(rawCode)}</code></pre> 
+                </div>`;// Note: escapeHTML for rawCode inside <code> is correct to prevent XSS if code contains HTML-like syntax.
             });
             return html;
         }
