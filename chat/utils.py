@@ -20,6 +20,9 @@ def _count_anthropic_tokens_internal(api_key: str, model_id_str: str, messages_f
     This implementation assumes client.messages.count_tokens exists and works as expected.
     """
     try:
+        if messages_for_api[-1].get('role') == 'assistant':
+            messages_for_api[-1]['content'] = messages_for_api[-1]['content'].rstrip()
+
         client = anthropic.Anthropic(
             api_key=api_key,  # Can be None, SDK will try env vars
             http_client=http_client_without_ssl_verification
