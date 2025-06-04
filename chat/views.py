@@ -765,24 +765,6 @@ def clean_remove_message_api(request, chat_id, message_id):
 
 @login_required
 @require_POST
-@transaction.atomic
-def delete_children_message_api(request, chat_id, message_id):
-    """Delete all children of a message while keeping the message itself."""
-    message_obj = get_object_or_404(Message, id=message_id, chat_id=chat_id, chat__user=request.user)
-
-    # Remove all direct children; cascades will delete deeper descendants
-    message_obj.children.all().delete()
-
-    # Clear any active child reference
-    if message_obj.active_child:
-        message_obj.active_child = None
-        message_obj.save(update_fields=['active_child'])
-
-    return JsonResponse({'status': 'success', 'message': 'Child messages deleted.'})
-
-
-@login_required
-@require_POST
 def add_sibling_message_api(request, chat_id, source_message_id):
     source_message = get_object_or_404(Message, id=source_message_id, chat_id=chat_id, chat__user=request.user)
     # This view might not always receive a JSON body, as per the frontend JS, it's a POST without a body.
