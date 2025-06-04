@@ -405,7 +405,7 @@
             html = html.replace(/~~(.*?)~~/g, '<del>$1</del>');
             // Code block ```text``` or ```lang\ntext```
             // Updated regex to capture optional language
-            html = html.replace(/```(\w*\n)?([\s\S]*?)```/g, function(match, langPart, codeContent) {
+            html = html.replace(/(?:\r?\n)?```(\w*\n)?([\s\S]*?)```(?:\r?\n)?/g, function(match, langPart, codeContent) {
                 const lang = langPart ? langPart.trim() : 'text'; // Default to 'text' if no language specified
                 // IMPORTANT: The codeContent itself should NOT be HTML escaped here if it's going into a <pre><code> block
                 // The browser will handle rendering it as text.
