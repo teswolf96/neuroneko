@@ -1035,6 +1035,7 @@
 
                     // Lock UI before starting async operations
                     lockGlobalUIAfterGenerationStart();
+                    let newlyCreatedSiblingId = null;
 
                     // Step 1: Create a new sibling for the current message
                     fetch(`/api/chat/${currentChatId}/message/${currentMessageId}/add_sibling/`, {
@@ -1052,7 +1053,7 @@
                     })
                     .then(siblingData => {
                         if (siblingData.status === 'success' && siblingData.new_message_id) {
-                            const newlyCreatedSiblingId = siblingData.new_message_id;
+                            newlyCreatedSiblingId = siblingData.new_message_id;
 
                             // Refresh chat display to show the new empty sibling
                             const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
@@ -1069,6 +1070,12 @@
                                 if (!newSiblingElementProse) {
                                     console.error("Could not find new sibling element .prose in DOM after refresh for regeneration.");
                                     alert("Error preparing for regeneration. UI might be out of sync.");
+                                    const staleEl = chatMessagesContainerEl.querySelector(`[data-message-id="${newlyCreatedSiblingId}"]`);
+                                    if (staleEl) {
+                                        staleEl.remove();
+                                    } else {
+                                        refreshActiveChat();
+                                    }
                                     unlockGlobalUIAfterGenerationEnd(); // Unlock UI if we can't proceed
                                     return;
                                 }
@@ -1112,6 +1119,14 @@
                     .catch(error => {
                         console.error('Error in add_sibling_message_api call for regeneration:', error);
                         alert('Error setting up for regeneration: ' + error.message);
+                        if (newlyCreatedSiblingId) {
+                            const staleEl = chatMessagesContainerEl.querySelector(`[data-message-id="${newlyCreatedSiblingId}"]`);
+                            if (staleEl) {
+                                staleEl.remove();
+                            } else {
+                                refreshActiveChat();
+                            }
+                        }
                         unlockGlobalUIAfterGenerationEnd(); // Unlock UI on error
                     });
                 });
@@ -2410,6 +2425,16 @@
                         genBtn.style.opacity = isLocked ? '0.5' : '1';
                     }
                 });
+            }
+
+            function refreshActiveChat() {
+                const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                if (activeChatListItem) {
+                    activeChatListItem.click();
+                } else if (currentChatId) {
+                    const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                    if (targetChatLink) targetChatLink.closest('.chat-item')?.click();
+                }
             }
             
             // Unified UI locking for generation start (called by 'lock_sidebar' WebSocket message)
