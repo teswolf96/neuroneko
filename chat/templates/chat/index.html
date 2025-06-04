@@ -86,6 +86,7 @@
         .message-highlight {
             animation: highlight-fade 2s ease-out;
         }
+
         /* Styles for Code Blocks */
        .code-block-container {
             background-color: #1e293b;
@@ -393,8 +394,8 @@
             html = html.replace(/(\*|_)(.*?)\1/g, '<em>$2</em>');
             // Strikethrough ~~text~~
             html = html.replace(/~~(.*?)~~/g, '<del>$1</del>');
-            // Code block ```text```
-            // html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+            // Code block ```text``` or ```lang\ntext```
+            // Updated regex to capture optional language
             html = html.replace(/```(\w*\n)?([\s\S]*?)```/g, function(match, langPart, codeContent) {
                 const lang = langPart ? langPart.trim() : 'text'; // Default to 'text' if no language specified
                 // IMPORTANT: The codeContent itself should NOT be HTML escaped here if it's going into a <pre><code> block
@@ -449,6 +450,37 @@
             const ideaListContainer = document.getElementById('idea-list-container');
             let allIdeas = [];
             // activePromptTargetTextarea is reused for ideas as well
+
+            function attachCopyCodeListeners(parentElement) {
+                const buttons = parentElement.querySelectorAll('.copy-code-button');
+                buttons.forEach(button => {
+                    // Check if listener already attached to prevent duplicates if re-rendering same element
+                    if (button.dataset.listenerAttached === 'true') return;
+
+                    button.addEventListener('click', function() {
+                        const codeBlockContainer = this.closest('.code-block-container');
+                        const codeElement = codeBlockContainer.querySelector('code.actual-code-content');
+                        if (codeElement) {
+                            navigator.clipboard.writeText(codeElement.textContent || codeElement.innerText)
+                                .then(() => {
+                                    const buttonTextSpan = this.querySelector('span');
+                                    const originalText = buttonTextSpan.textContent;
+                                    buttonTextSpan.textContent = 'Copied!';
+                                    this.title = 'Copied!';
+                                    setTimeout(() => {
+                                        buttonTextSpan.textContent = originalText;
+                                        this.title = 'Copy code';
+                                    }, 2000);
+                                })
+                                .catch(err => {
+                                    console.error('Failed to copy code: ', err);
+                                    alert('Failed to copy code.');
+                                });
+                        }
+                    });
+                    button.dataset.listenerAttached = 'true'; // Mark as listener attached
+                });
+            }
 
 
             let currentActiveChatLi = null;
@@ -564,6 +596,7 @@
                                 const newRawContent = currentRawContent + data.text_delta;
                                 currentAssistantMessageContentEl.dataset.rawContent = newRawContent;
                                 currentAssistantMessageContentEl.innerHTML = renderMarkdownSafe(newRawContent);
+                                attachCopyCodeListeners(currentAssistantMessageContentEl); // Add this line
                                 chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
                             }
                             break;
@@ -571,6 +604,7 @@
                             if (data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
                                 currentAssistantMessageContentEl.dataset.rawContent = data.full_content; // Store final raw content
                                 currentAssistantMessageContentEl.innerHTML = renderMarkdownSafe(data.full_content);
+                                attachCopyCodeListeners(currentAssistantMessageContentEl); // Add this line
                             }
                             // UI reset is handled by unlock_sidebar which should follow
                             break;
@@ -688,6 +722,9 @@
                 const rawContent = msg.content || ''; // Ensure rawContent is defined
                 contentP.innerHTML = renderMarkdownSafe(rawContent); // Render basic Markdown safely
                 contentP.dataset.rawContent = rawContent; // Store raw content for easier updates
+
+                // Add event listeners for copy buttons within this message
+                attachCopyCodeListeners(contentP);
 
                 // Alternating grey backgrounds
                 if (messageIndex % 2 === 0) {
