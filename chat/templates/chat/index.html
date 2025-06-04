@@ -86,6 +86,76 @@
         .message-highlight {
             animation: highlight-fade 2s ease-out;
         }
+
+        /* Styles for Code Blocks */
+       .code-block-container {
+            background-color: #1e293b;
+            border-radius: 8px;
+            margin: 0.25em 0;
+            overflow: hidden;
+            font-size: 0.875rem;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .code-block-header {
+            background-color: #1f2937;
+            padding: 0 8px; /* horizontal only */
+            position: relative;
+            color: #e2e8f0;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            font-size: 0.75rem;
+        }
+
+        .language-name {
+            font-family: monospace;
+            line-height: 1;
+        }
+
+        .copy-code-button {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            color: #94a3b8;
+            border: none;
+            padding: 0;
+            margin: 0;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.75rem;
+            line-height: 1;
+            height: 24px;
+        }
+
+        .copy-code-button:hover {
+            background-color: #475569;
+            color: #e2e8f0;
+        }
+
+        .copy-icon {
+            font-size: 1em;
+            line-height: 1;
+        }
+
+        .code-block-container pre {
+            background-color: #0f172a;
+            color: #e2e8f0;
+            padding: 8px 12px;
+            margin: 0;
+            overflow-x: auto;
+            border-bottom-left-radius: 8px;
+            border-bottom-right-radius: 8px;
+        }
+
+        .code-block-container pre code {
+            white-space: pre;
+        }
     </style>
     {% block extra_head %}{% endblock %}
 </head>
@@ -324,8 +394,29 @@
             html = html.replace(/(\*|_)(.*?)\1/g, '<em>$2</em>');
             // Strikethrough ~~text~~
             html = html.replace(/~~(.*?)~~/g, '<del>$1</del>');
-            // Code block ```text```
-            html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+            // Code block ```text``` or ```lang\ntext```
+            // Updated regex to capture optional language
+            html = html.replace(/```(\w*\n)?([\s\S]*?)```/g, function(match, langPart, codeContent) {
+                const lang = langPart ? langPart.trim() : 'text'; // Default to 'text' if no language specified
+                // IMPORTANT: The codeContent itself should NOT be HTML escaped here if it's going into a <pre><code> block
+                // The browser will handle rendering it as text.
+                // However, if we were injecting it directly into other HTML, escaping would be crucial.
+                // For the <pre><code> structure, we want the raw code.
+                // The outer HTML structure is what we are building.
+                const rawCode = codeContent.trim(); // Use raw code for the <pre><code> block
+
+                return `
+            <div class="code-block-container">
+                <div class="code-block-header">
+                    <span class="language-name">${escapeHTML(lang)}</span>
+                    <button class="copy-code-button" title="Copy code">
+                        <span class="copy-icon">📋</span>
+                        <span>Copy code</span>
+                    </button>
+                </div>
+                <pre><code class="actual-code-content">${escapeHTML(rawCode)}</code></pre> 
+            </div>`;// Note: escapeHTML for rawCode inside <code> is correct to prevent XSS if code contains HTML-like syntax.
+            });
             return html;
         }
 
@@ -359,6 +450,37 @@
             const ideaListContainer = document.getElementById('idea-list-container');
             let allIdeas = [];
             // activePromptTargetTextarea is reused for ideas as well
+
+            function attachCopyCodeListeners(parentElement) {
+                const buttons = parentElement.querySelectorAll('.copy-code-button');
+                buttons.forEach(button => {
+                    // Check if listener already attached to prevent duplicates if re-rendering same element
+                    if (button.dataset.listenerAttached === 'true') return;
+
+                    button.addEventListener('click', function() {
+                        const codeBlockContainer = this.closest('.code-block-container');
+                        const codeElement = codeBlockContainer.querySelector('code.actual-code-content');
+                        if (codeElement) {
+                            navigator.clipboard.writeText(codeElement.textContent || codeElement.innerText)
+                                .then(() => {
+                                    const buttonTextSpan = this.querySelector('span');
+                                    const originalText = buttonTextSpan.textContent;
+                                    buttonTextSpan.textContent = 'Copied!';
+                                    this.title = 'Copied!';
+                                    setTimeout(() => {
+                                        buttonTextSpan.textContent = originalText;
+                                        this.title = 'Copy code';
+                                    }, 2000);
+                                })
+                                .catch(err => {
+                                    console.error('Failed to copy code: ', err);
+                                    alert('Failed to copy code.');
+                                });
+                        }
+                    });
+                    button.dataset.listenerAttached = 'true'; // Mark as listener attached
+                });
+            }
 
 
             let currentActiveChatLi = null;
@@ -474,6 +596,7 @@
                                 const newRawContent = currentRawContent + data.text_delta;
                                 currentAssistantMessageContentEl.dataset.rawContent = newRawContent;
                                 currentAssistantMessageContentEl.innerHTML = renderMarkdownSafe(newRawContent);
+                                attachCopyCodeListeners(currentAssistantMessageContentEl); // Add this line
                                 chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
                             }
                             break;
@@ -481,6 +604,7 @@
                             if (data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
                                 currentAssistantMessageContentEl.dataset.rawContent = data.full_content; // Store final raw content
                                 currentAssistantMessageContentEl.innerHTML = renderMarkdownSafe(data.full_content);
+                                attachCopyCodeListeners(currentAssistantMessageContentEl); // Add this line
                             }
                             // UI reset is handled by unlock_sidebar which should follow
                             break;
@@ -594,10 +718,13 @@
                 });
 
                 const contentP = document.createElement('div'); // Changed to div to better accommodate block elements from Markdown
-                contentP.classList.add(userChatFontSize, 'prose', 'prose-sm', 'prose-invert', 'max-w-none', 'whitespace-pre-line'); // Added prose classes and whitespace-pre-line, and dynamic font size
+                contentP.classList.add(userChatFontSize, 'prose', 'prose-sm', 'prose-invert', 'max-w-none'); // Added prose classes and whitespace-pre-line, and dynamic font size
                 const rawContent = msg.content || ''; // Ensure rawContent is defined
                 contentP.innerHTML = renderMarkdownSafe(rawContent); // Render basic Markdown safely
                 contentP.dataset.rawContent = rawContent; // Store raw content for easier updates
+
+                // Add event listeners for copy buttons within this message
+                attachCopyCodeListeners(contentP);
 
                 // Alternating grey backgrounds
                 if (messageIndex % 2 === 0) {
