@@ -1280,8 +1280,56 @@
                 iconsDiv.appendChild(copyButton);
                 iconsDiv.appendChild(editButton);
 
-                // Conditionally add the "Clean Remove" button if not the root message
+                // Conditionally add the "Delete Children" and "Clean Remove" buttons if not the root message
                 if (msg.id !== chatRootMessageId) {
+                    // Delete Children Only Button
+                    const deleteChildrenButton = document.createElement('button');
+                    deleteChildrenButton.innerHTML = '🪓'; // Unicode for Axe
+                    deleteChildrenButton.title = 'Delete children only';
+                    deleteChildrenButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none');
+                    deleteChildrenButton.addEventListener('click', function() {
+                        const messageId = messageDiv.dataset.messageId;
+                        if (!messageId || !currentChatId) {
+                            alert('Cannot delete children: ID or Chat context missing.');
+                            return;
+                        }
+                        if (window.confirm('Are you sure you want to delete all child messages while keeping this message? This action cannot be undone.')) {
+                            fetch(`/api/chat/${currentChatId}/message/${messageId}/delete_children/`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-CSRFToken': '{{ csrf_token }}'
+                                },
+                            })
+                            .then(response => {
+                                if (!response.ok) {
+                                    return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                                }
+                                return response.json();
+                            })
+                            .then(data => {
+                                console.log('Children deletion successful:', data.message);
+                                // Re-fetch chat details to update UI
+                                const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                                if (activeChatListItem) {
+                                    activeChatListItem.click();
+                                } else if (currentChatId) {
+                                    const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                                    if (targetChatLink) {
+                                        const targetChatItem = targetChatLink.closest('.chat-item');
+                                        if (targetChatItem) targetChatItem.click();
+                                    }
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error deleting children:', error);
+                                alert('Error deleting children: ' + error.message);
+                            });
+                        }
+                    });
+                    iconsDiv.appendChild(deleteChildrenButton);
+                    
+                    // Clean Remove Button (existing functionality)
                     const cleanRemoveButton = document.createElement('button');
                     cleanRemoveButton.innerHTML = '✂️'; // Unicode for Scissors, or choose another
                     cleanRemoveButton.title = 'Remove (keep children)';

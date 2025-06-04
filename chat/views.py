@@ -799,6 +799,32 @@ def add_sibling_message_api(request, chat_id, source_message_id):
 
 @login_required
 @require_POST
+@transaction.atomic
+def delete_children_api(request, chat_id, message_id):
+    message = get_object_or_404(Message, id=message_id, chat_id=chat_id, chat__user=request.user)
+    
+    # Get the count of children before deletion to inform the user
+    children_count = message.children.count()
+    
+    if children_count == 0:
+        return JsonResponse({'status': 'success', 'message': 'No children to delete.'})
+    
+    # Delete all children of this message
+    # This will cascade delete all descendants due to on_delete=models.CASCADE on Message.parent
+    message.children.all().delete()
+    
+    # Set active_child to None since all children are now deleted
+    message.active_child = None
+    message.save(update_fields=['active_child'])
+    
+    return JsonResponse({
+        'status': 'success', 
+        'message': f'Successfully deleted {children_count} child message(s) and their descendants.'
+    })
+
+
+@login_required
+@require_POST
 def set_active_child_api(request, chat_id):
     try:
         data = json.loads(request.body)
