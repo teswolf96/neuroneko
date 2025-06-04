@@ -102,7 +102,7 @@ def _test_openai_internal(api_key: str) -> Dict[str, Any]:
 
 def _test_google_internal(api_key: str) -> Dict[str, Any]:
     """
-    Synchronously tests an OpenAI API endpoint by making a minimal call.
+    Synchronously tests a Google API endpoint by making a minimal call.
     Args:
         api_key: The API key.
     Returns:
@@ -729,19 +729,3 @@ async def _stream_completion_openai_internal(
         error_detail = {"type": "error", "message": f"Unexpected error during OpenAI stream: {str(e)}"}
         await on_chunk_callback(error_detail)
 
-
-if __name__ == "__main__":
-    prompt_messages = [
-        {"role": "system", "content": "You are a friendly and helpful AI assistant."},
-        {"role": "user", "content": "Hello!"},
-        {"role": "model", "content": "Hi. how are you?"},
-        {"role": "user", "content": "Good, how are you?"},
-    ]
-    _get_static_completion_google_internal(
-        ai_model_id= 'gemini-2.0-flash',
-        api_key= 'AIzaSyAxqeJb4FTYfd1ZO9-u43XIjXU4gE5TtTc',
-        messages=prompt_messages,
-        on_chunk_callback=None,
-        temperature=1.0,
-        max_tokens=10000,
-    )
