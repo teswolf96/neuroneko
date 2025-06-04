@@ -607,7 +607,7 @@
                 const copyButton = document.createElement('button');
                 copyButton.innerHTML = '📄'; // Unicode for Copy
                 copyButton.title = 'Copy';
-                copyButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none');
+                copyButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none', 'message-action-button');
                 copyButton.addEventListener('click', function() {
                     // For Markdown, copying innerText might be more appropriate to get a plain text version
                     const textToCopy = contentP.innerText; 
@@ -915,7 +915,7 @@
                 const deleteButton = document.createElement('button');
                 deleteButton.innerHTML = '🗑️'; // Unicode for Delete
                 deleteButton.title = 'Delete';
-                deleteButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none');
+                deleteButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none', 'message-action-button');
 
                 deleteButton.addEventListener('click', function() {
                     const messageIdToDelete = messageDiv.dataset.messageId;
@@ -969,7 +969,7 @@
                 const addSiblingButton = document.createElement('button');
                 addSiblingButton.innerHTML = '🔀'; // Unicode for Add Sibling (Branch)
                 addSiblingButton.title = 'Add Sibling';
-                addSiblingButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none');
+                addSiblingButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none', 'message-action-button');
                 addSiblingButton.addEventListener('click', function() {
                     const sourceMessageId = messageDiv.dataset.messageId;
                     if (!currentChatId || !sourceMessageId) {
@@ -1015,7 +1015,7 @@
                 const regenerateButton = document.createElement('button');
                 regenerateButton.innerHTML = '🔄'; // Unicode for Regenerate
                 regenerateButton.title = 'Regenerate';
-                regenerateButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none');
+                regenerateButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none', 'message-action-button');
                 regenerateButton.addEventListener('click', function() {
                     const currentMessageId = messageDiv.dataset.messageId;
                     if (!currentChatId || !currentMessageId) {
@@ -1183,7 +1183,7 @@
                     const plusButton = document.createElement('button');
                     plusButton.innerHTML = '⬇️'; // Unicode for Plus
                     plusButton.title = 'Add message below';
-                    plusButton.classList.add('text-white', 'text-xs', 'hover:text-gray-300', 'focus:outline-none', 'px-1');
+                    plusButton.classList.add('text-white', 'text-xs', 'hover:text-gray-300', 'focus:outline-none', 'px-1', 'message-action-button');
                     plusButtonDiv.appendChild(plusButton);
 
                     // Add the "Add Sibling" button next to the Plus button if it's not the root message
@@ -2411,6 +2411,14 @@
                     }
                 });
             }
+
+            function setMessageActionButtonsLock(isLocked) {
+                const actionButtons = chatMessagesContainerEl.querySelectorAll('.message-action-button');
+                actionButtons.forEach(btn => {
+                    btn.disabled = isLocked;
+                    btn.style.opacity = isLocked ? '0.5' : '1';
+                });
+            }
             
             // Unified UI locking for generation start (called by 'lock_sidebar' WebSocket message)
             function lockGlobalUIAfterGenerationStart() {
@@ -2430,6 +2438,7 @@
                 }
                 setSiblingNavigationLock(true);
                 setGlobalEditControlsLock(true);
+                setMessageActionButtonsLock(true);
                 console.log('Global UI locked for generation.');
             }
 
@@ -2451,6 +2460,7 @@
                 }
                 setSiblingNavigationLock(false);
                 setGlobalEditControlsLock(false);
+                setMessageActionButtonsLock(false);
                 
                 // Reset these critical state variables after generation attempt
                 currentAssistantMessageId = null;
