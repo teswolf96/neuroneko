@@ -7,6 +7,8 @@
     <title>{% block title %}NeuroNeko{% endblock %}</title>
     <link rel="icon" href="{% static 'favicon.ico' %}">
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/default.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
     <style>
         .unselectable {
             -webkit-user-select: none; /* Safari */
@@ -423,7 +425,7 @@
                             <span>Copy code</span>
                         </button>
                     </div>
-                    <pre><code class="actual-code-content">${escapeHTML(rawCode)}</code></pre> 
+                    <pre><code class="language-${escapeHTML(lang)} actual-code-content">${escapeHTML(rawCode)}</code></pre>
                 </div>`;// Note: escapeHTML for rawCode inside <code> is correct to prevent XSS if code contains HTML-like syntax.
             });
             return html;
@@ -460,6 +462,14 @@
             let allIdeas = [];
             // activePromptTargetTextarea is reused for ideas as well
 
+            function applySyntaxHighlighting(parentElement) {
+                if (window.hljs) {
+                    parentElement.querySelectorAll('pre code').forEach(block => {
+                        hljs.highlightElement(block);
+                    });
+                }
+            }
+
             function attachCopyCodeListeners(parentElement) {
                 const buttons = parentElement.querySelectorAll('.copy-code-button');
                 buttons.forEach(button => {
@@ -489,6 +499,7 @@
                     });
                     button.dataset.listenerAttached = 'true'; // Mark as listener attached
                 });
+                applySyntaxHighlighting(parentElement);
             }
 
 
@@ -848,6 +859,7 @@
                             // Update the raw content store (msg.content) if possible, or re-fetch for consistency
                             msg.content = newText; // Update local msg object
                             contentP.innerHTML = renderMarkdownSafe(newText);
+                            attachCopyCodeListeners(contentP);
                             // Restore UI
                             editingInterfaceDiv.remove();
                             contentP.style.display = '';
@@ -913,6 +925,7 @@
                             msg.content = newText; // Update local msg object's content
                             contentP.innerHTML = renderMarkdownSafe(newText);
                             contentP.dataset.rawContent = newText;
+                            attachCopyCodeListeners(contentP);
 
                             // Restore UI from editing mode
                             editingInterfaceDiv.remove();
