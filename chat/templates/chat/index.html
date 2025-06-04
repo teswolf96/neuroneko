@@ -406,6 +406,8 @@
             html = html.replace(/(\*|_)(.*?)\1/g, '<em>$2</em>');
             // Strikethrough ~~text~~
             html = html.replace(/~~(.*?)~~/g, '<del>$1</del>');
+            // Underline ++text++
+            html = html.replace(/\+\+(.*?)\+\+/g, '<u>$1</u>');
             // Code block ```text``` or ```lang\ntext```
             // Updated regex to capture optional language
             html = html.replace(/(?:\r?\n)?```(\w*\n)?([\s\S]*?)```(?:\r?\n)?/g, function(match, langPart, codeContent) {
