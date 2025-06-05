@@ -783,7 +783,7 @@
                 copyButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none', 'message-action-button');
                 copyButton.addEventListener('click', function() {
                     // For Markdown, copying innerText might be more appropriate to get a plain text version
-                    const textToCopy = contentP.innerText; 
+                    const textToCopy = contentP.dataset.rawContent;
                     navigator.clipboard.writeText(textToCopy)
                         .then(() => {
                             // Optional: Provide feedback to the user, e.g., change icon or show a tooltip
