@@ -93,6 +93,12 @@
         {% else %}
             <p class="text-gray-400">You haven't saved any prompts yet. Use the form above to add your first one!</p>
         {% endif %}
+        </div>
+        <div class="mt-6">
+            <a href="{% url 'index' %}" class="bg-gray-600 hover:bg-gray-500 text-white font-semibold py-2 px-4 rounded-md text-sm transition duration-150 ease-in-out">
+                &larr; Back to Chat
+            </a>
+        </div>
     </div>
 </div>
 {% endblock %}
