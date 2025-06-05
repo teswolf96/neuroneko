@@ -403,7 +403,7 @@
             // Bold **text** or __text__
             html = html.replace(/(\*\*|__)(.*?)\1/g, '<strong>$2</strong>');
             // Italic *text* or _text_
-            html = html.replace(/(\*|_)(.*?)\1/g, '<em>$2</em>');
+            html = html.replace(/(\*)(.*?)\1/g, '<em>$2</em>');
             // Strikethrough ~~text~~
             html = html.replace(/~~(.*?)~~/g, '<del>$1</del>');
             // Underline ++text++
@@ -428,8 +428,8 @@
                             <span>Copy code</span>
                         </button>
                     </div>
-                    <pre><code class="language-${escapeHTML(lang)} actual-code-content">${escapeHTML(rawCode)}</code></pre>
-                </div>`;// Note: escapeHTML for rawCode inside <code> is correct to prevent XSS if code contains HTML-like syntax.
+                    <pre><code class="language-${escapeHTML(lang)} actual-code-content">${rawCode}</code></pre>
+                </div>`;// The rawCode is already escaped at the beginning of the function, so we don't need to escape it again
             });
             return html;
         }
