@@ -5,7 +5,12 @@
 
 {% block content %}
 <div class="bg-gray-800 p-6 rounded-lg shadow-lg text-white">
-    <h2 class="text-2xl font-semibold mb-6">API Endpoint and Model Configuration</h2>
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-semibold">API Endpoint and Model Configuration</h2>
+        <a href="{% url 'index' %}" class="bg-gray-600 hover:bg-gray-500 text-white font-semibold py-2 px-4 rounded-md text-sm transition duration-150 ease-in-out">
+            &larr; Back to Chat
+        </a>
+    </div>
 
     {% if messages %}
         <div class="mb-4">
