@@ -2415,6 +2415,13 @@
                     console.log("Cost estimation: No model selected.");
                     return;
                 }
+
+                // Check if the WebSocket is open before sending
+                if (chatSocket.readyState !== WebSocket.OPEN) {
+                    console.warn("WebSocket is not open, delaying cost estimation.");
+                    costEstimationDisplayEl.textContent = 'Estimating cost... (Waiting for connection)';
+                    return;
+                }
                 
                 // Update UI immediately to indicate estimation is in progress
                 costEstimationDisplayEl.textContent = 'Estimating cost...';

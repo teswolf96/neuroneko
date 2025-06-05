@@ -1039,7 +1039,8 @@ def regenerate_chat_title_api(request, chat_id): # Changed to sync def
     if second_message:
         prompt_messages.append({"role": second_message.role, "content": second_message.message})
     
-    prompt_messages.append({"role": "user", "content": "Based on the conversation snippet(s) above, return a suitable title for this chat, ideally 5-7 words long, based on the beginning of a conversation. Do not include quotation marks in the title itself."})
+    prompt_messages.append({"role": "user", "content": "Based on the conversation snippet(s) above, return a suitable title for this chat, ideally 5-7 words long, based on the beginning of a conversation. Do not include quotation marks in the title itself.(index):1095 Uncaught (in promise) InvalidStateError: Failed to execute 'send' on 'WebSocket': Still in CONNECTING state.
+    at (index):1095:60"})
 
     try:
         # Call the refactored async function synchronously
