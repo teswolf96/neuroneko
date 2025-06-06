@@ -965,16 +965,48 @@
                                 }
                                 
                                 console.log(`Create sibling for message ID: ${sourceMessageForSiblingId} (child of ${editedMessageId}) and generate into new sibling.`);
-                                
-                                // Use WebSocket-driven approach to avoid DOM reference issues
-                                // Send a message to create sibling and generate in one flow
-                                chatSocket.send(JSON.stringify({
-                                    type: 'create_sibling_and_generate',
-                                    source_message_id: sourceMessageForSiblingId,
-                                    model_id: selectedModelId
-                                }));
-                                
-                                // UI locking will be handled by WebSocket events
+                                fetch(`/api/chat/${currentChatId}/message/${sourceMessageForSiblingId}/add_sibling/`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'X-CSRFToken': '{{ csrf_token }}'
+                                    }
+                                })
+                                .then(response => response.json())
+                                .then(siblingData => {
+                                    if (siblingData.status === 'success' && siblingData.new_message_id) {
+                                        const newSiblingId = siblingData.new_message_id;
+
+                                        // Refresh chat display to show the new empty sibling
+                                        refreshActiveChat().then(() => {
+                                            const newSiblingElementProse = chatMessagesContainerEl.querySelector(`[data-message-id="${newSiblingId}"] .prose`);
+                                            if (newSiblingElementProse) {
+                                                currentAssistantMessageId = newSiblingId;
+                                                currentAssistantMessageContentEl = newSiblingElementProse;
+                                                currentAssistantMessageContentEl.dataset.rawContent = ""; // Ensure it's empty
+                                                currentAssistantMessageContentEl.innerHTML = "";
+
+                                                chatSocket.send(JSON.stringify({
+                                                    type: 'generate_into_empty_message',
+                                                    target_message_id: newSiblingId,
+                                                    model_id: selectedModelId
+                                                }));
+                                            } else {
+                                                console.error("Could not find new sibling element .prose in DOM after refresh for generation.");
+                                                alert("Error preparing for generation. UI might be out of sync.");
+                                                unlockGlobalUIAfterGenerationEnd(); // Unlock UI
+                                            }
+                                        });
+                                    } else {
+                                        alert('Error creating sibling message: ' + (siblingData.error || 'Unknown error'));
+                                        unlockGlobalUIAfterGenerationEnd(); // Unlock UI
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Error in add_sibling_message_api call:', error);
+                                    alert('Error setting up sibling for generation: ' + error.message);
+                                    unlockGlobalUIAfterGenerationEnd(); // Unlock UI
+                                });
                             }
                         })
                         .catch(error => {
