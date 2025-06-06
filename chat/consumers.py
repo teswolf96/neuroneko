@@ -144,6 +144,12 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                     return
                 self.cancel_stream_flag.clear()
                 self.current_stream_task = asyncio.create_task(self.handle_generate_into_empty_message(data))
+            elif message_type == 'create_sibling_and_generate':
+                if self.current_stream_task and not self.current_stream_task.done():
+                    await self.send_error_to_client("A generation is already in progress.")
+                    return
+                self.cancel_stream_flag.clear()
+                self.current_stream_task = asyncio.create_task(self.handle_create_sibling_and_generate(data))
             elif message_type == 'cancel_generation':
                 if self.current_stream_task and not self.current_stream_task.done():
                     self.cancel_stream_flag.set()
@@ -536,6 +542,119 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             print(f"Error in handle_generate_into_empty_message: {type(e).__name__} {e}")
             await self.send_error_to_client(f"Server error during generation: {str(e)}")
+            await self.send_to_client({'type': 'unlock_sidebar'})
+        finally:
+            if self.current_stream_task is asyncio.current_task():
+                 self.current_stream_task = None
+
+    async def handle_create_sibling_and_generate(self, data):
+        try:
+            source_message_id = data.get('source_message_id')
+            model_id = data.get('model_id')
+
+            if not source_message_id or not model_id:
+                await self.send_error_to_client("Missing source message ID or model ID.")
+                return
+
+            chat = await database_sync_to_async(Chat.objects.select_related('user', 'ai_model_used__endpoint', 'root_message').get)(id=self.chat_id, user=self.user)
+            ai_model_instance = await database_sync_to_async(AIModel.objects.select_related('endpoint').get)(id=model_id, endpoint__user=self.user)
+            user_settings = await database_sync_to_async(UserSettings.objects.get)(user=self.user)
+
+            temperature = chat.ai_temperature if chat.ai_temperature is not None else user_settings.default_temp
+            max_tokens = ai_model_instance.default_max_tokens
+
+            source_message = await database_sync_to_async(Message.objects.select_related('parent').get)(id=source_message_id, chat=chat)
+
+            # Create a new sibling for the source message
+            new_sibling = await database_sync_to_async(Message.objects.create)(
+                chat=chat,
+                message="",  # Empty content initially
+                role='assistant',  # Assuming we're generating an assistant response
+                parent=source_message.parent
+            )
+
+            # Set this new sibling as the active child of its parent
+            if source_message.parent:
+                await database_sync_to_async(self.set_as_active_child)(source_message.parent, new_sibling)
+
+            # Send notification that the sibling was created
+            await self.send_to_client({
+                'type': 'assistant_message_placeholder_created',
+                'message_id': new_sibling.id,
+                'role': new_sibling.role,
+                'parent_id': source_message.parent.id if source_message.parent else None
+            })
+
+            # Lock the UI
+            await self.send_to_client({'type': 'lock_sidebar'})
+
+            # Get conversation history up to the parent of the new sibling
+            api_messages = await self.get_formatted_message_history(chat, source_message.parent) if source_message.parent else []
+
+            accumulated_content = ""
+            async def on_chunk(chunk_data):
+                nonlocal accumulated_content
+                if self.cancel_stream_flag.is_set():
+                    new_sibling.message = accumulated_content
+                    await database_sync_to_async(new_sibling.save)(update_fields=['message'])
+                    await self.send_to_client({'type': 'stream_cancelled', 'assistant_message_id': new_sibling.id})
+                    await self.send_to_client({'type': 'unlock_sidebar'})
+                    return False
+
+                chunk_type = chunk_data.get("type")
+                if chunk_type == "error":
+                    error_message = chunk_data.get("message", "Unknown API error during stream.")
+                    new_sibling.message = f"Error: {error_message}"
+                    await database_sync_to_async(new_sibling.save)(update_fields=['message'])
+                    await self.send_error_to_client(f"API Error: {error_message}", new_sibling.id)
+                    await self.send_to_client({'type': 'unlock_sidebar'})
+                    return False
+
+                if chunk_type == "delta":
+                    delta_text = chunk_data.get("text_delta", "")
+                    if delta_text:
+                        accumulated_content += delta_text
+                        await self.send_to_client({
+                            'type': 'stream_chunk',
+                            'assistant_message_id': new_sibling.id,
+                            'text_delta': delta_text
+                        })
+                elif chunk_type == "stop":
+                    final_data = chunk_data.get("text_delta", "")
+                    new_sibling.message = accumulated_content + final_data
+                    await database_sync_to_async(new_sibling.save)(update_fields=['message'])
+                    stop_reason = chunk_data.get("stop_reason")
+                    await self.send_to_client({
+                        'type': 'stream_end',
+                        'assistant_message_id': new_sibling.id,
+                        'full_content': accumulated_content,
+                        'stop_reason': stop_reason
+                    })
+                    await self.send_to_client({'type': 'unlock_sidebar'})
+                    return False
+                elif chunk_type == "metadata":
+                    pass # Handle metadata if needed
+                return True
+
+            await stream_completion(
+                model=ai_model_instance,
+                messages=api_messages,
+                on_chunk_callback=on_chunk,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+
+        except Message.DoesNotExist:
+            await self.send_error_to_client("Source message not found.")
+        except AIModel.DoesNotExist:
+            await self.send_error_to_client("Selected AI Model not found or not accessible.")
+        except Chat.DoesNotExist:
+            await self.send_error_to_client("Chat session not found.")
+        except UserSettings.DoesNotExist:
+            await self.send_error_to_client("User settings not found.")
+        except Exception as e:
+            print(f"Error in handle_create_sibling_and_generate: {type(e).__name__} {e}")
+            await self.send_error_to_client(f"Server error during sibling creation and generation: {str(e)}")
             await self.send_to_client({'type': 'unlock_sidebar'})
         finally:
             if self.current_stream_task is asyncio.current_task():
