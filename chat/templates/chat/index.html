@@ -3142,7 +3142,7 @@
 
                                 const titleEl = document.createElement('h4');
                                 titleEl.classList.add('font-semibold', 'text-gray-200');
-                                titleEl.textContent = result.chat_title; // Already escaped by backend
+                                titleEl.innerHTML = result.chat_title; // Use innerHTML to interpret entities
                                 resultDiv.appendChild(titleEl);
 
                                 const metaEl = document.createElement('p');

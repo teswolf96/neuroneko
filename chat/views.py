@@ -1299,71 +1299,53 @@ def advanced_search_api(request):
     ).order_by('-created_at')[:50] # Limit results
 
     results = []
-    processed_chat_ids = set() # To avoid duplicate chats if title and message match
+    # Keep track of unique message IDs added to results to avoid duplicates.
+    added_message_ids = set()
+    # Keep track of chat IDs that have been added as a title match to avoid duplicate title match entries.
+    added_title_match_chat_ids = set()
 
     # Process chat title matches first
     for chat in chat_title_matches:
-        if chat.id not in processed_chat_ids:
-            # For title matches, the "snippet" can be the title itself, or a generic message.
-            # Or, we can try to find the first message of that chat as a snippet.
+        if chat.id not in added_title_match_chat_ids: # Ensure we don't add the same chat *as a title match* more than once
             first_message_content = "Chat title matched. No specific message snippet."
             first_msg_obj = chat.messages.order_by('created_at').first()
             if first_msg_obj:
+                # For title matches, use generate_snippet on the first message content.
+                # This allows highlighting if the search term also appears in the first message.
                 first_message_content = generate_snippet(first_msg_obj.message, search_term, radius=75)
-
 
             results.append({
                 'chat_id': chat.id,
                 'chat_title': escape(chat.title), # Escape title
-                'message_id': first_msg_obj.id if first_msg_obj else None,
+                'message_id': first_msg_obj.id if first_msg_obj else None, # This is the ID of the first message for context
                 'message_snippet': f"<em>Title Match:</em> {escape(chat.title)}<br/>{first_message_content if first_msg_obj else 'No messages in this chat.'}",
                 'message_role': first_msg_obj.role if first_msg_obj else 'N/A',
                 'message_created_at': first_msg_obj.created_at.strftime('%Y-%m-%d %H:%M') if first_msg_obj and first_msg_obj.created_at else 'N/A',
                 'type': 'title_match'
             })
-            processed_chat_ids.add(chat.id)
+            added_title_match_chat_ids.add(chat.id)
 
     # Process message content matches
     for msg in message_matches:
-        if msg.chat.id not in processed_chat_ids: # Only add if chat hasn't been added via title match
+        # Add this message match if its specific ID hasn't been added yet.
+        # This allows messages from chats that also had a title match to be listed as separate message matches.
+        if msg.id not in added_message_ids:
             snippet = generate_snippet(msg.message, search_term)
             results.append({
                 'chat_id': msg.chat.id,
                 'chat_title': escape(msg.chat.title), # Escape title
-                'message_id': msg.id,
+                'message_id': msg.id, # This is the ID of the actual matching message
                 'message_snippet': snippet,
                 'message_role': msg.role,
                 'message_created_at': msg.created_at.strftime('%Y-%m-%d %H:%M') if msg.created_at else 'N/A',
                 'type': 'message_match'
             })
-            processed_chat_ids.add(msg.chat.id) # Add to set even if it's a message match to avoid re-listing same chat
-        elif msg.chat.id in processed_chat_ids:
-            # If chat was already added due to title match, we can add this specific message match as an additional entry
-            # or decide to show only one entry per chat. For now, let's allow multiple distinct message snippets from same chat.
-            # To avoid confusion, let's ensure we don't *just* re-add the chat if it was a title match.
-            # The goal is to show *where* the match occurred.
-            # If a chat title matched, and a message within it also matched, we should show both.
-            # The current logic for processed_chat_ids might prevent showing a message match if title already matched.
-            # Let's refine: we want unique (chat_id, message_id_if_message_match) entries.
-            # For title matches, message_id can be the first message's ID or None.
-            
-            # Re-thinking processed_chat_ids: it should prevent adding the *same message* twice,
-            # or the same chat *as a title match* twice.
-            # A chat can appear once as a title match, and multiple times for different message matches.
-
-            # Let's simplify: the current processed_chat_ids ensures a chat is listed at most once if its title matches.
-            # If its title didn't match, but messages within it did, those messages will be listed.
-            # This seems reasonable. If a user searches "recipe" and a chat is "Chicken Recipe", that's one hit.
-            # If another chat "Shopping List" has "recipe for chicken" in a message, that's another hit.
-
-            # The current logic is: if a chat title matches, it's added. Then, if messages from *other* chats match, they are added.
-            # This means if a chat title matches, its individual message matches won't be shown separately.
-            # This might be okay to keep the list concise.
-            # Alternative: show title match, then also show specific message matches from that same chat.
-            # For now, let's stick to the current logic: title match takes precedence for listing a chat.
-            # If no title match, then message matches from that chat are listed.
-            pass # Chat already listed due to title match, skip adding this specific message match for now.
-
+            added_message_ids.add(msg.id)
+    
+    # Results are currently ordered by title matches first, then message matches.
+    # Within those groups, they are ordered by the database query's sort order.
+    # If a different final sort order is desired (e.g., strictly by date regardless of match type),
+    # it would need to be applied to the `results` list here. For now, this is fine.
 
     # Sort results: maybe title matches first, then by chat date?
     # The current queries already sort. We can re-sort the combined list if needed.
