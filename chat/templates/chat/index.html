@@ -986,11 +986,31 @@
                                                 currentAssistantMessageContentEl.dataset.rawContent = ""; // Ensure it's empty
                                                 currentAssistantMessageContentEl.innerHTML = "";
 
-                                                chatSocket.send(JSON.stringify({
-                                                    type: 'generate_into_empty_message',
-                                                    target_message_id: newSiblingId,
-                                                    model_id: selectedModelId
-                                                }));
+                                                // Polling function to wait for WebSocket to be open
+                                                let attempts = 0;
+                                                const maxAttempts = 20; // e.g., 20 * 250ms = 5 seconds
+                                                const interval = 250; // ms
+
+                                                function attemptSendGenerateIntoNewSibling() {
+                                                    if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+                                                        chatSocket.send(JSON.stringify({
+                                                            type: 'generate_into_empty_message',
+                                                            target_message_id: newSiblingId, // In scope
+                                                            model_id: selectedModelId      // In scope
+                                                        }));
+                                                        // UI locking is handled by the 'lock_sidebar' message from consumer,
+                                                        // and unlocking by 'unlock_sidebar'.
+                                                    } else if (attempts < maxAttempts) {
+                                                        attempts++;
+                                                        console.log(`WebSocket not open for new sibling generation, attempt ${attempts}/${maxAttempts}. Retrying in ${interval}ms...`);
+                                                        setTimeout(attemptSendGenerateIntoNewSibling, interval);
+                                                    } else {
+                                                        console.error("WebSocket failed to open after multiple attempts for new sibling generation.");
+                                                        alert("Error: Could not connect to the server for generation. Please try again.");
+                                                        unlockGlobalUIAfterGenerationEnd(); // Unlock UI
+                                                    }
+                                                }
+                                                attemptSendGenerateIntoNewSibling(); // Start polling
                                             } else {
                                                 console.error("Could not find new sibling element .prose in DOM after refresh for generation.");
                                                 alert("Error preparing for generation. UI might be out of sync.");
