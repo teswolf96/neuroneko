@@ -556,44 +556,68 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
         parent_msg_obj.save(update_fields=['active_child'])
 
     @database_sync_to_async
-    def get_formatted_message_history(self, chat_obj: Chat, last_user_message: Message):
-        # Traverse from root_message up to last_user_message along the active path
-        # and format for the API: [{"role": "user/assistant/system", "content": "..."}]
+    def get_formatted_message_history(self, chat_obj: Chat, last_message_in_history: Message):
+        # Traverse from root_message up to last_message_in_history along the active path
+        # and format for the API, applying cache_control if needed.
         history = []
-        current_msg = chat_obj.root_message
         
-        # Collect messages along the active path
+        # Get the ID of the message that should have the cache_control tag from the Chat model
+        target_cache_db_message_id = chat_obj.cache_until_message_id
+        
+        # Collect messages along the active path up to last_message_in_history
         path_messages = []
-        temp_msg = chat_obj.root_message
-        while temp_msg:
-            path_messages.append(temp_msg)
-            if temp_msg.id == last_user_message.id: # Stop if we reached the target message
+        current_msg_in_path = chat_obj.root_message
+        if not current_msg_in_path: # Handle chats with no root message (should ideally not happen)
+            return []
+
+        while current_msg_in_path:
+            path_messages.append(current_msg_in_path)
+            if current_msg_in_path.id == last_message_in_history.id:
                 break
-            temp_msg = temp_msg.active_child
-            if not temp_msg: # Break if path ends before target (should not happen if last_user_message is on active path)
+            current_msg_in_path = current_msg_in_path.active_child
+            if not current_msg_in_path: # Path ended before reaching last_message_in_history
+                # This means last_message_in_history might not be on the active path from root,
+                # or the path is shorter than expected.
+                # We will proceed with the path collected. If last_message_in_history was not found,
+                # the subsequent check will handle it.
                 break
         
-        # Ensure last_user_message is indeed the last one if loop broke early
-        if path_messages and path_messages[-1].id != last_user_message.id and \
-           any(m.id == last_user_message.id for m in path_messages):
-             # This case means last_user_message was on the path but not the end, which is fine.
-             # We only want messages *up to and including* it.
-             try:
-                idx = next(i for i, msg in enumerate(path_messages) if msg.id == last_user_message.id)
+        # Ensure the collected path_messages ends at last_message_in_history if it was found.
+        # If last_message_in_history was not found in the traversed path, this indicates a potential logic issue
+        # or inconsistent state, as last_message_in_history should be part of the active conversation thread.
+        if not path_messages or path_messages[-1].id != last_message_in_history.id:
+            # Attempt to find last_message_in_history in the collected path and truncate if necessary.
+            # This handles cases where last_message_in_history is an earlier message in the active path.
+            try:
+                idx = next(i for i, msg_iter in enumerate(path_messages) if msg_iter.id == last_message_in_history.id)
                 path_messages = path_messages[:idx+1]
-             except StopIteration:
-                # Should not happen if last_user_message was created correctly on an active path
-                print(f"Error: last_user_message {last_user_message.id} not found in constructed path for chat {chat_obj.id}")
-                return []
+            except StopIteration:
+                # last_message_in_history was not found in the active path from root_message.
+                print(f"Error: last_message_in_history (ID: {last_message_in_history.id}) not found in the active path for chat (ID: {chat_obj.id}).")
+                return [] # Return empty list or raise an error, as history cannot be correctly constructed.
 
-
-        for msg in path_messages:
-            history.append({"role": msg.role, "content": msg.message})
+        for msg_in_path in path_messages:
+            content_text = msg_in_path.message
+            
+            # Create the basic content block structure required by Anthropic API
+            content_block = {"type": "text", "text": content_text}
+            
+            # Add cache_control if this message is the one designated in the Chat model
+            if target_cache_db_message_id and msg_in_path.id == target_cache_db_message_id:
+                content_block["cache_control"] = {"type": "ephemeral"}
+            
+            history.append({
+                "role": msg_in_path.role,
+                "content": [content_block] # Content must be an array of blocks
+            })
         
-        # The api_client.stream_completion will handle system prompt extraction if it's a top-level param.
-        # If system prompt is part of 'messages' for the API, ensure it's correctly placed (usually first).
-        # If the root message is 'system', it's already included.
-        # If UserSettings.system_prompt is to be used and not part of messages, api_client handles it.
+        # System prompt considerations:
+        # The api_client.py's stream_completion (and _get_static_completion_anthropic_internal)
+        # extracts a "system" role message from the 'messages' list and places its content
+        # into a top-level 'system' parameter for the Anthropic API.
+        # If a system message from the DB (e.g., root_message.role == 'system') is formatted by this loop,
+        # its 'content' will be `[{"type": "text", "text": "...", "cache_control": ...}]` if it's the cache point.
+        # The api_client will then correctly pass this structured content to the 'system' API parameter.
         return history
 
 

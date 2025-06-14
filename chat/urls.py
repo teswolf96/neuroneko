@@ -43,6 +43,7 @@ urlpatterns = [
     path('api/chat/<int:chat_id>/message/<int:parent_message_id>/add_child_message/', views.add_child_message_api, name='add_child_message_api'), # New route
     path('api/chat/<int:chat_id>/rename_title/', views.rename_chat_title_api, name='rename_chat_title_api'),
     path('api/chat/<int:chat_id>/delete/', views.delete_chat_api, name='delete_chat_api'),
+    path('api/chat/<int:chat_id>/cache_point/', views.set_cache_point_api, name='set_cache_point_api'),
 
     # API endpoint for saved prompts
     path('api/prompts/', views.get_saved_prompts_api, name='get_saved_prompts_api'),

@@ -509,6 +509,7 @@
             let currentActiveChatLi = null;
             let currentChatId = null; // To store the ID of the currently active chat
             let currentChatRootMessageId = null; // To store the root message ID of the active chat
+            let currentChatCachePointId = null; // To store the ID of the message flagged for caching
             const lastActiveChatIdFromDjango = '{{ last_active_chat_id|default_if_none:"" }}';
             let chatSocket = null;
             let currentAssistantMessageId = null; // Store ID of the assistant message being streamed into
@@ -1414,6 +1415,62 @@
                 }
 
                 iconsDiv.appendChild(deleteButton); // Original delete button
+                
+                // Cache Pin button
+                const cachePinButton = document.createElement('button');
+                const messageIdForPin = String(msg.id); // Ensure it's a string for comparison
+                const isCachedPoint = messageIdForPin === String(currentChatCachePointId);
+
+                cachePinButton.innerHTML = isCachedPoint ? '📌' : '📍'; // Filled pin if active, outline/location otherwise
+                cachePinButton.title = isCachedPoint ? 'Remove cache flag' : 'Cache up to this message';
+                cachePinButton.classList.add('text-xs', 'hover:text-gray-300', 'focus:outline-none', 'message-action-button');
+                if (isCachedPoint) {
+                    cachePinButton.classList.add('text-blue-400'); // Highlight if active
+                }
+
+                cachePinButton.addEventListener('click', function() {
+                    const messageIdToPin = messageDiv.dataset.messageId;
+                    if (!currentChatId || !messageIdToPin) {
+                        alert('Error: Chat ID or Message ID missing for cache operation.');
+                        return;
+                    }
+
+                    let apiUrl = `/api/chat/${currentChatId}/cache_point/`;
+                    let apiMethod = 'POST';
+                    let apiBody = { message_id: messageIdToPin };
+
+                    if (String(messageIdToPin) === String(currentChatCachePointId)) { // Unflagging
+                        apiMethod = 'DELETE';
+                        apiBody = null; // No body for DELETE
+                    }
+
+                    fetch(apiUrl, {
+                        method: apiMethod,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: apiBody ? JSON.stringify(apiBody) : null
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('Cache point update successful:', data.message);
+                        // Update local state and re-render the chat for simplicity
+                        currentChatCachePointId = data.cache_until_message_id; // Update from response
+                        refreshActiveChat(); // Re-fetches and re-renders the entire chat
+                    })
+                    .catch(error => {
+                        console.error('Error updating cache point:', error);
+                        alert('Error updating cache point: ' + error.message);
+                    });
+                });
+                iconsDiv.insertBefore(cachePinButton, iconsDiv.firstChild); // Add to the beginning of icons
+
                 footerDiv.appendChild(iconsDiv);
 
                 // Plus Icon (bottom-center, conditional)
@@ -1557,6 +1614,23 @@
 
                 messageDiv.appendChild(footerDiv);
                 container.appendChild(messageDiv);
+
+                // Add demarcation line if this message is the cache point
+                if (String(msg.id) === String(currentChatCachePointId)) {
+                    const demarcationOuterContainer = document.createElement('div');
+                    demarcationOuterContainer.classList.add('w-full', 'mt-3', 'mb-5'); // Overall spacing for the block
+
+                    const demarcationLabel = document.createElement('div'); 
+                    demarcationLabel.classList.add('text-center', 'text-xs', 'text-blue-300', 'mb-1'); // Centered text, margin bottom for space to line
+                    demarcationLabel.textContent = 'Cached Above';
+                    demarcationOuterContainer.appendChild(demarcationLabel);
+
+                    const demarcationLine = document.createElement('div');
+                    demarcationLine.classList.add('w-full', 'border-t-2', 'border-blue-500'); // Just the line, its bottom margin is handled by demarcationOuterContainer
+                    demarcationOuterContainer.appendChild(demarcationLine);
+                    
+                    container.appendChild(demarcationOuterContainer);
+                }
             }
 
             // Function to render message tree
@@ -1614,6 +1688,7 @@
                         }
                         chatModelTempEl.textContent = data.temperature || 'N/A';
                         currentChatRootMessageId = data.root_message_id;
+                        currentChatCachePointId = data.cache_until_message_id; // Store cache point ID
 
                         chatMessagesContainerEl.innerHTML = '';
                         if (data.messages && data.messages.length > 0) {

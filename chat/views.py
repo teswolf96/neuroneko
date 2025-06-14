@@ -4,7 +4,7 @@ from django.contrib.auth.forms import UserCreationForm, AuthenticationForm, Pass
 from django.contrib.auth import login, logout, update_session_auth_hash
 from django.urls import reverse
 from django.http import JsonResponse, HttpResponseForbidden, HttpResponseBadRequest
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_http_methods
 from django.db import transaction
 import json
 from django.contrib import messages
@@ -407,6 +407,44 @@ def create_new_chat_view(request):
     
     return redirect('index')
 
+@login_required
+@require_http_methods(["POST", "DELETE"])
+@transaction.atomic
+def set_cache_point_api(request, chat_id):
+    chat = get_object_or_404(Chat, id=chat_id, user=request.user)
+
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            message_id = data.get('message_id')
+        except json.JSONDecodeError:
+            return JsonResponse({'status': 'error', 'error': 'Invalid JSON.'}, status=400)
+
+        if not message_id:
+            return JsonResponse({'status': 'error', 'error': 'Message ID is required.'}, status=400)
+
+        try:
+            message_to_cache_until = get_object_or_404(Message, id=message_id, chat=chat)
+            chat.cache_until_message = message_to_cache_until
+            chat.save(update_fields=['cache_until_message'])
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Cache point set successfully.',
+                'cache_until_message_id': message_to_cache_until.id
+            })
+        except Message.DoesNotExist:
+            return JsonResponse({'status': 'error', 'error': 'Message not found in this chat.'}, status=404)
+        except ValueError: # Handles if message_id is not a valid int for PK
+            return JsonResponse({'status': 'error', 'error': 'Invalid Message ID format.'}, status=400)
+
+    elif request.method == 'DELETE':
+        chat.cache_until_message = None
+        chat.save(update_fields=['cache_until_message'])
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Cache point cleared successfully.',
+            'cache_until_message_id': None
+        })
 
 # --- API Views for Chat Functionality (from original file, may need review/updates) ---
 @login_required
@@ -599,6 +637,7 @@ def get_chat_details_api(request, chat_id):
     ai_model_used_id = chat.ai_model_used.id if chat.ai_model_used else (user_settings.default_model.id if user_settings.default_model else None)
     temperature = chat.ai_temperature # This should be chat.ai_temperature (typo in model)
     root_message_id = chat.root_message.id if chat.root_message else None
+    cache_until_message_id = chat.cache_until_message.id if chat.cache_until_message else None
 
     return JsonResponse({
         'id': chat.id,
@@ -608,7 +647,8 @@ def get_chat_details_api(request, chat_id):
         'ai_model_used_id': ai_model_used_id,
         'temperature': temperature,
         'system_prompt': user_settings.system_prompt, # This should probably be chat-specific if we add it to Chat model
-        'root_message_id': root_message_id
+        'root_message_id': root_message_id,
+        'cache_until_message_id': cache_until_message_id
     })
 
 

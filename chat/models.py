@@ -88,6 +88,14 @@ class Chat(models.Model):
     # Optional: Store the AI model used for this specific chat
     ai_model_used = models.ForeignKey(AIModel, on_delete=models.SET_NULL, null=True, blank=True, help_text="The AI model used for this chat session")
     ai_temperature = models.FloatField('AI Temperature', default=1.0) # Corrected typo
+    cache_until_message = models.ForeignKey(
+        'Message',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+', # No reverse relation needed from Message to Chat for this specific field
+        help_text="The message up to which the conversation is explicitly cached."
+    )
 
     def __str__(self):
         return f"'{self.title}' by {self.user.username}"
