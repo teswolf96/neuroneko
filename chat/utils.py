@@ -13,30 +13,78 @@ from typing import List, Dict, Optional
 http_client_without_ssl_verification = httpx.Client(verify=False)
 
 
-def _count_anthropic_tokens_internal(api_key: str, model_id_str: str, messages_for_api: List[Dict[str, str]], system_prompt_for_api: Optional[str] = None) -> int:
+def _count_anthropic_tokens_internal(api_key: str, model_id_str: str, messages_for_api: List[Dict[str, any]], system_prompt_for_api: Optional[str | List[Dict[str, str]]] = None) -> int:
     """
     Internal function to count tokens for Anthropic models.
-    Note: The Anthropic SDK's direct count_tokens for messages API might require specific versions or handling.
-    This implementation assumes client.messages.count_tokens exists and works as expected.
     """
     try:
-        if messages_for_api[-1].get('role') == 'assistant':
-            messages_for_api[-1]['content'] = messages_for_api[-1]['content'].rstrip()
+        processed_messages = []
+        for i, msg_original in enumerate(messages_for_api):
+            msg = msg_original.copy() # Work on a copy
+            content = msg.get('content')
+            
+            # Apply rstrip to the text of the last text block if the message is the last one and from assistant
+            if i == len(messages_for_api) - 1 and msg.get('role') == 'assistant':
+                if isinstance(content, str):
+                    msg['content'] = content.rstrip()
+                elif isinstance(content, list) and content: # It's a list of blocks
+                    new_content_list = []
+                    # Iterate backwards to find the last text block to rstrip
+                    processed_last_text_block = False
+                    for block_idx in range(len(content) - 1, -1, -1):
+                        block_original = content[block_idx]
+                        block = block_original.copy()
+                        if not processed_last_text_block and block.get("type") == "text" and isinstance(block.get("text"), str):
+                            block["text"] = block["text"].rstrip()
+                            processed_last_text_block = True
+                        new_content_list.insert(0, block) # Insert at beginning to maintain order
+                    
+                    if processed_last_text_block:
+                         msg['content'] = new_content_list
+                    # If not modified (e.g. no text block, or last block not text), content remains as is in the copy
+            
+            processed_messages.append(msg)
+
+        final_system_prompt_str = None
+        if isinstance(system_prompt_for_api, str):
+            final_system_prompt_str = system_prompt_for_api
+        elif isinstance(system_prompt_for_api, list) and system_prompt_for_api:
+            # Extract text from the first text block if system_prompt_for_api is a list of blocks
+            # Anthropic system prompt is a single string.
+            for block in system_prompt_for_api: # Find the first text block
+                if block.get("type") == "text" and isinstance(block.get("text"), str):
+                    final_system_prompt_str = block.get("text")
+                    break 
+        
+        # Ensure final_system_prompt_str is not an empty string if it was derived from an empty block list or non-text block
+        # An empty string as system prompt is different from None (no system prompt) for Anthropic.
+        # If it was intentionally an empty string, preserve it. If it became empty due to no text block, make it None.
+        # However, the Anthropic SDK might treat "" and None similarly for the 'system' parameter.
+        # For clarity, if it's an empty string from processing, let it be. If it was None initially, it stays None.
 
         client = anthropic.Anthropic(
-            api_key=api_key,  # Can be None, SDK will try env vars
+            api_key=api_key,
             http_client=http_client_without_ssl_verification
-            )
+        )
+        
+        # Filter out messages with content that might be problematic for count_tokens if necessary.
+        # Anthropic expects 'content' to be a string or a list of content blocks.
+        # An empty string content e.g. `{"role":"user", "content":""}` is valid.
+        # A list of blocks like `{"role":"user", "content":[{"type":"text", "text":""}]}` is also valid.
+        # The `processed_messages` list should maintain this validity.
 
         result = client.messages.count_tokens(
             model=model_id_str,
-            messages=messages_for_api,
-            system = system_prompt_for_api,
-
+            messages=processed_messages, # Use the potentially modified messages
+            system=final_system_prompt_str, # Use the processed string system prompt
         )
         return int(result.input_tokens)
     except Exception as e:
-        print(f"Error counting Anthropic tokens: {e}")
+        # For more detailed debugging, one could log the types and content structure:
+        # system_prompt_type = type(system_prompt_for_api).__name__
+        # messages_sample_str = str(messages_for_api[:2]) # Example of first two messages
+        # print(f"Error counting Anthropic tokens (system_prompt_type: {system_prompt_type}, messages_sample: {messages_sample_str}): {e}")
+        print(f"Error counting Anthropic tokens: {e}") # Original print
         return 0 # Fallback to 0 on other errors
 
 
