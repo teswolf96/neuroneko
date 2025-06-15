@@ -314,10 +314,11 @@
             </div>
 
             <!-- Input Area -->
-            <div class="bg-gray-800 p-2 rounded mt-auto"> <!-- mt-auto to push to bottom -->
-                <div class="bg-gray-700 p-2 rounded flex items-start space-x-2">
-                    <!-- <div class="bg-red-500 px-2 py-1 rounded">User</div> -->
-                    <textarea id="message-input" class="w-full bg-gray-800 p-2 rounded text-white" rows="4" placeholder="Type a message..."></textarea>
+        <div class="bg-gray-800 p-2 rounded mt-auto"> <!-- mt-auto to push to bottom -->
+            <div id="cost-tooltip" class="absolute hidden bg-gray-800 border border-gray-600 p-2 rounded shadow-lg z-50 text-xs"></div>
+            <div class="bg-gray-700 p-2 rounded flex items-start space-x-2">
+                <!-- <div class="bg-red-500 px-2 py-1 rounded">User</div> -->
+                <textarea id="message-input" class="w-full bg-gray-800 p-2 rounded text-white" rows="4" placeholder="Type a message..."></textarea>
                     <!-- Button column for Generate, Save, Prompt, Idea -->
                     <div class="flex flex-col space-y-1">
                         <button class="bg-green-500 px-4 py-2 rounded w-full">Generate</button>
@@ -631,6 +632,13 @@
                                 attachCopyCodeListeners(currentAssistantMessageContentEl); // Add this line
                             }
                             // UI reset is handled by unlock_sidebar which should follow
+                            if (data.assistant_message_id === currentAssistantMessageId && data.cost_details) {
+                                // Update UI with cost details for the completed message
+                                const completedMessageDiv = chatMessagesContainerEl.querySelector(`[data-message-id="${data.assistant_message_id}"]`);
+                                if (completedMessageDiv) {
+                                    addCostDisplayToMessage(completedMessageDiv, data.cost_details);
+                                }
+                            }
                             break;
                         case 'stream_cancelled':
                              if (data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
@@ -772,8 +780,13 @@
 
                 // Footer for icons
                 const footerDiv = document.createElement('div');
-                footerDiv.classList.add('relative', 'h-5', 'mt-1'); // Height to contain icons, mt-1 for spacing
+                footerDiv.classList.add('relative', 'h-5', 'mt-1', 'flex', 'justify-between', 'items-center'); // Added flex for layout
 
+                // Cost display (bottom-left of footer)
+                if (msg.cost_details && msg.cost_details.total_cost > 0) {
+                    addCostDisplayToMessage(messageDiv, msg.cost_details); // Call helper
+                }
+                
                 // Action Icons (Copy, Edit, Delete) - bottom-right
                 const iconsDiv = document.createElement('div');
                 iconsDiv.classList.add('absolute', 'bottom-0', 'right-0', 'flex', 'space-x-2');
@@ -3318,6 +3331,87 @@
                 // });
             }
             // --- End of Advanced Search Modal JavaScript ---
+
+            // --- Cost Tooltip Logic ---
+            const costTooltip = document.getElementById('cost-tooltip');
+
+            function showCostTooltip(event, costDetails) {
+                if (!costDetails || costDetails.total_cost <= 0) return;
+
+                let tooltipContent = `<strong>Total: $${costDetails.total_cost.toFixed(6)} (${costDetails.currency})</strong><hr class="my-1 border-gray-600">`;
+                if (costDetails.input_tokens > 0) {
+                    tooltipContent += `Input: ${costDetails.input_tokens} tokens ($${costDetails.input_cost.toFixed(6)})<br>`;
+                }
+                if (costDetails.output_tokens > 0) {
+                    tooltipContent += `Output: ${costDetails.output_tokens} tokens ($${costDetails.output_cost.toFixed(6)})<br>`;
+                }
+                if (costDetails.cache_creation_tokens > 0) {
+                    tooltipContent += `Cache Create: ${costDetails.cache_creation_tokens} tokens ($${costDetails.cache_creation_cost.toFixed(6)})<br>`;
+                }
+                if (costDetails.cache_read_tokens > 0) {
+                    tooltipContent += `Cache Read: ${costDetails.cache_read_tokens} tokens ($${costDetails.cache_read_cost.toFixed(6)})`;
+                }
+                
+                costTooltip.innerHTML = tooltipContent.trim();
+
+                // Position tooltip: Attempt to position above the element, slightly offset
+                const rect = event.target.getBoundingClientRect();
+                let top = rect.top - costTooltip.offsetHeight - 5; // 5px offset
+                let left = rect.left + (rect.width / 2) - (costTooltip.offsetWidth / 2);
+
+                // Adjust if tooltip goes off-screen
+                if (top < 0) { // If too high, position below
+                    top = rect.bottom + 5;
+                }
+                if (left < 0) left = 5; // Min left padding
+                if (left + costTooltip.offsetWidth > window.innerWidth) {
+                    left = window.innerWidth - costTooltip.offsetWidth - 5; // Adjust if goes off right
+                }
+
+                costTooltip.style.top = `${top + window.scrollY}px`;
+                costTooltip.style.left = `${left + window.scrollX}px`;
+                costTooltip.classList.remove('hidden');
+            }
+
+            function hideCostTooltip() {
+                costTooltip.classList.add('hidden');
+            }
+
+            function addCostDisplayToMessage(messageElement, costDetails) {
+                if (!costDetails || costDetails.total_cost <= 0) return;
+
+                // Remove existing cost display if any (e.g., for stream_end updates)
+                const existingCostDisplay = messageElement.querySelector('.message-cost-display');
+                if (existingCostDisplay) {
+                    existingCostDisplay.remove();
+                }
+
+                const costDisplaySpan = document.createElement('span');
+                costDisplaySpan.classList.add('text-xs', 'text-gray-400', 'hover:text-gray-200', 'cursor-default', 'message-cost-display');
+                costDisplaySpan.textContent = `$${costDetails.total_cost.toFixed(6)}`;
+                
+                // Store details for tooltip retrieval
+                costDisplaySpan.dataset.costDetails = JSON.stringify(costDetails);
+
+                costDisplaySpan.addEventListener('mouseenter', (event) => {
+                    const details = JSON.parse(event.target.dataset.costDetails);
+                    showCostTooltip(event, details);
+                });
+                costDisplaySpan.addEventListener('mouseleave', hideCostTooltip);
+
+                const roleSelectElement = messageElement.querySelector('select'); // Get the role selector
+                if (roleSelectElement && roleSelectElement.parentNode === messageElement) {
+                    // Insert the cost display span after the role select element
+                    roleSelectElement.parentNode.insertBefore(costDisplaySpan, roleSelectElement.nextSibling);
+                    // Add some margin to separate it from the role select
+                    costDisplaySpan.classList.add('ml-2', 'self-start', 'mt-1'); // Adjust margin and alignment as needed
+                } else {
+                    // Fallback: if roleSelect is not found directly under messageElement, prepend to messageElement
+                    // This might happen if the structure changes unexpectedly.
+                    messageElement.insertBefore(costDisplaySpan, messageElement.firstChild);
+                }
+            }
+            // --- End of Cost Tooltip Logic ---
 
         });
     </script>

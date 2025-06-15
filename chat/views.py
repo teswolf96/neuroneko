@@ -607,6 +607,7 @@ def get_chat_details_api(request, chat_id):
                 'is_active_sibling': False, # Will be true if this node is the active_child of its parent
                 'previous_sibling_id': None,
                 'next_sibling_id': None,
+                'cost_details': message_obj.get_cost_details() # Add cost details
             }
 
             if message_obj.parent: # If it has a parent, it might be an active sibling

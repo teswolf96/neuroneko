@@ -314,6 +314,9 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                     
                     stop_reason = chunk_data.get("stop_reason")
                     
+                    # Get cost details after saving the message and its tokens
+                    cost_details = await database_sync_to_async(assistant_msg_obj.get_cost_details)()
+                    
                     await self.send_to_client({
                         'type': 'stream_end',
                         'assistant_message_id': assistant_msg_obj.id,
@@ -324,7 +327,8 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                             'output_tokens': current_output_tokens,
                             'cache_creation_input_tokens': current_cache_creation_tokens,
                             'cache_read_input_tokens': current_cache_read_tokens,
-                        }
+                        },
+                        'cost_details': cost_details # Add cost_details here
                     })
                     await self.send_to_client({'type': 'unlock_sidebar'})
                     return False
@@ -462,6 +466,10 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                         ]
                     )
                     stop_reason = chunk_data.get("stop_reason")
+                    
+                    # Get cost details after saving the message and its tokens
+                    cost_details = await database_sync_to_async(assistant_msg_obj.get_cost_details)()
+                    
                     await self.send_to_client({
                         'type': 'stream_end',
                         'assistant_message_id': assistant_msg_obj.id,
@@ -472,7 +480,8 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                             'output_tokens': current_output_tokens,
                             'cache_creation_input_tokens': current_cache_creation_tokens,
                             'cache_read_input_tokens': current_cache_read_tokens,
-                        }
+                        },
+                        'cost_details': cost_details # Add cost_details here
                     })
                     await self.send_to_client({'type': 'unlock_sidebar'})
                     return False
@@ -598,6 +607,10 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                         ]
                     )
                     stop_reason = chunk_data.get("stop_reason")
+                    
+                    # Get cost details after saving the message and its tokens
+                    cost_details = await database_sync_to_async(target_message.get_cost_details)()
+                    
                     await self.send_to_client({
                         'type': 'stream_end',
                         'assistant_message_id': target_message.id,
@@ -608,7 +621,8 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                             'output_tokens': current_output_tokens,
                             'cache_creation_input_tokens': current_cache_creation_tokens,
                             'cache_read_input_tokens': current_cache_read_tokens,
-                        }
+                        },
+                        'cost_details': cost_details # Add cost_details here
                     })
                     await self.send_to_client({'type': 'unlock_sidebar'})
                     return False

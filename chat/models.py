@@ -136,6 +136,58 @@ class Message(models.Model):
     def __str__(self):
         return f"{self.role}: {self.message[:50]}... (Chat: {self.chat.title})"
 
+    def get_cost_details(self):
+        """
+        Calculates the cost of this message based on its token counts and the AI model's rates.
+        Returns a dictionary with cost breakdown or None if not applicable.
+        """
+        if not (self.input_tokens is not None or \
+                self.output_tokens is not None or \
+                self.cache_creation_input_tokens is not None or \
+                self.cache_read_input_tokens is not None):
+            return None
+
+        ai_model = self.chat.ai_model_used
+        if not ai_model:
+            return None # Cannot calculate cost without model rates
+
+        details = {
+            'input_tokens': self.input_tokens or 0,
+            'output_tokens': self.output_tokens or 0,
+            'cache_creation_tokens': self.cache_creation_input_tokens or 0,
+            'cache_read_tokens': self.cache_read_input_tokens or 0,
+            'input_cost': 0.0,
+            'output_cost': 0.0,
+            'cache_creation_cost': 0.0,
+            'cache_read_cost': 0.0,
+            'total_cost': 0.0,
+            'currency': ai_model.currency or "USD"
+        }
+
+        cost_calculated = False
+
+        if ai_model.input_cost_per_million_tokens is not None and self.input_tokens:
+            details['input_cost'] = (self.input_tokens / 1_000_000.0) * float(ai_model.input_cost_per_million_tokens)
+            details['total_cost'] += details['input_cost']
+            cost_calculated = True
+        
+        if ai_model.output_cost_per_million_tokens is not None and self.output_tokens:
+            details['output_cost'] = (self.output_tokens / 1_000_000.0) * float(ai_model.output_cost_per_million_tokens)
+            details['total_cost'] += details['output_cost']
+            cost_calculated = True
+
+        if ai_model.cache_creation_cost_per_million_tokens is not None and self.cache_creation_input_tokens:
+            details['cache_creation_cost'] = (self.cache_creation_input_tokens / 1_000_000.0) * float(ai_model.cache_creation_cost_per_million_tokens)
+            details['total_cost'] += details['cache_creation_cost']
+            cost_calculated = True
+        
+        if ai_model.cache_read_cost_per_million_tokens is not None and self.cache_read_input_tokens:
+            details['cache_read_cost'] = (self.cache_read_input_tokens / 1_000_000.0) * float(ai_model.cache_read_cost_per_million_tokens)
+            details['total_cost'] += details['cache_read_cost']
+            cost_calculated = True
+            
+        return details if cost_calculated else None
+
     class Meta:
         ordering = ['created_at'] # Ensure messages are ordered by creation time by default
 
