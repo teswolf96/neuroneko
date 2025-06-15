@@ -120,6 +120,10 @@ class Message(models.Model):
         related_name='+',
         help_text="The active child message, if this message has children and one is designated as active."
     )
+    input_tokens = models.IntegerField(null=True, blank=True, help_text="Tokens in the input to the model for this message generation.")
+    output_tokens = models.IntegerField(null=True, blank=True, help_text="Tokens in the output from the model for this message generation.")
+    cache_creation_input_tokens = models.IntegerField(null=True, blank=True, help_text="Input tokens used for cache creation (Anthropic specific).")
+    cache_read_input_tokens = models.IntegerField(null=True, blank=True, help_text="Input tokens read from cache (Anthropic specific).")
 
     def save(self, *args, **kwargs):
         if self.active_child and self.active_child.parent != self:

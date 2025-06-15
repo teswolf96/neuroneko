@@ -351,17 +351,28 @@ async def _stream_completion_anthropic_internal(
             async for event in stream:
                 standardized_chunk = None
                 if event.type == "message_start":
+                    print(event.message.usage.model_dump_json())
+                    # event.message.usage.model_dump_json()
+                    # returns in the format
+                    # {"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"input_tokens":44,"output_tokens":3,"server_tool_use":null,"service_tier":"standard"}
                     standardized_chunk = {
-                        "type": "metadata", 
+                        "type": "metadata",
                         "data": {
                             "id": event.message.id,
-                            "input_tokens": event.message.usage.input_tokens
+                            "input_tokens": event.message.usage.input_tokens,
+                            "cache_creation_input_tokens": event.message.usage.cache_creation_input_tokens,
+                            "cache_read_input_tokens": event.message.usage.cache_read_input_tokens
                         }
                     }
                 elif event.type == "content_block_delta":
                     if event.delta.type == "text_delta" and event.delta.text:
                         standardized_chunk = {"type": "delta", "text_delta": event.delta.text}
                 elif event.type == "message_delta": # Anthropic sends this for stop_reason and output_tokens
+                    print(event.usage.model_dump_json())
+                    # event.usage.model_dump_json()
+                    # returns in the format
+                    # {"cache_creation_input_tokens":null,"cache_read_input_tokens":null,"input_tokens":null,"output_tokens":90,"server_tool_use":null}
+
                     standardized_chunk = {
                         "type": "stop", 
                         "stop_reason": event.delta.stop_reason,
@@ -728,4 +739,3 @@ async def _stream_completion_openai_internal(
     except Exception as e:
         error_detail = {"type": "error", "message": f"Unexpected error during OpenAI stream: {str(e)}"}
         await on_chunk_callback(error_detail)
-

@@ -250,9 +250,13 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
 
             # 6. Start Streaming
             accumulated_content = ""
+            current_input_tokens = None
+            current_cache_creation_tokens = None
+            current_cache_read_tokens = None
+            current_output_tokens = None
             
             async def on_chunk(chunk_data): # chunk_data is now standardized
-                nonlocal accumulated_content 
+                nonlocal accumulated_content, current_input_tokens, current_cache_creation_tokens, current_cache_read_tokens, current_output_tokens
                 if self.cancel_stream_flag.is_set():
                     await self.send_to_client({
                         'type': 'stream_cancelled',
@@ -283,19 +287,44 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                             'text_delta': delta_text
                         })
                 elif chunk_type == "stop":
-                    final_data = chunk_data.get("text_delta", "")
-                    assistant_msg_obj.message = accumulated_content + final_data
-                    await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
+                    final_data = chunk_data.get("text_delta", "") # Anthropic might not send text_delta in message_delta
+                    accumulated_content += final_data # Ensure any final text is appended
+
+                    assistant_msg_obj.message = accumulated_content # Save full content
+
+                    # Get usage from the stop chunk
+                    usage_info = chunk_data.get("usage", {})
+                    current_output_tokens = usage_info.get('output_tokens')
+
+                    # Assign all collected token data
+                    assistant_msg_obj.input_tokens = current_input_tokens
+                    assistant_msg_obj.output_tokens = current_output_tokens
+                    assistant_msg_obj.cache_creation_input_tokens = current_cache_creation_tokens
+                    assistant_msg_obj.cache_read_input_tokens = current_cache_read_tokens
+
+                    await database_sync_to_async(assistant_msg_obj.save)(
+                        update_fields=[
+                            'message',
+                            'input_tokens',
+                            'output_tokens',
+                            'cache_creation_input_tokens',
+                            'cache_read_input_tokens'
+                        ]
+                    )
                     
                     stop_reason = chunk_data.get("stop_reason")
-                    # usage_info = chunk_data.get("usage") # Optional: if provider sends usage at stop
                     
                     await self.send_to_client({
                         'type': 'stream_end',
                         'assistant_message_id': assistant_msg_obj.id,
-                        'full_content': accumulated_content,
-                        'stop_reason': stop_reason
-                        # 'usage': usage_info # Optional
+                        'full_content': accumulated_content, # Send the final full content
+                        'stop_reason': stop_reason,
+                        'usage': { # Send all collected usage back to client
+                            'input_tokens': current_input_tokens,
+                            'output_tokens': current_output_tokens,
+                            'cache_creation_input_tokens': current_cache_creation_tokens,
+                            'cache_read_input_tokens': current_cache_read_tokens,
+                        }
                     })
                     await self.send_to_client({'type': 'unlock_sidebar'})
                     return False
@@ -303,6 +332,10 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                     # Handle metadata if needed, e.g., message ID from provider
                     # For now, we primarily use our DB-generated IDs.
                     # print(f"Stream metadata received: {chunk_data.get('data')}")
+                    data_payload = chunk_data.get('data', {})
+                    current_input_tokens = data_payload.get('input_tokens')
+                    current_cache_creation_tokens = data_payload.get('cache_creation_input_tokens')
+                    current_cache_read_tokens = data_payload.get('cache_read_input_tokens')
                     pass
 
                 return True
@@ -372,8 +405,12 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
             api_messages = await self.get_formatted_message_history(chat, parent_message) # History up to the parent
 
             accumulated_content = ""
+            current_input_tokens = None
+            current_cache_creation_tokens = None
+            current_cache_read_tokens = None
+            current_output_tokens = None
             async def on_chunk(chunk_data): # chunk_data is now standardized
-                nonlocal accumulated_content
+                nonlocal accumulated_content, current_input_tokens, current_cache_creation_tokens, current_cache_read_tokens, current_output_tokens
                 if self.cancel_stream_flag.is_set():
                     assistant_msg_obj.message = accumulated_content
                     await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
@@ -400,19 +437,50 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                             'text_delta': delta_text
                         })
                 elif chunk_type == "stop":
-                    final_data = chunk_data.get("text_delta", "")
-                    assistant_msg_obj.message = accumulated_content + final_data
-                    await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
+                    final_data = chunk_data.get("text_delta", "") # Anthropic might not send text_delta in message_delta
+                    accumulated_content += final_data # Ensure any final text is appended
+
+                    assistant_msg_obj.message = accumulated_content # Save full content
+
+                    # Get usage from the stop chunk
+                    usage_info = chunk_data.get("usage", {})
+                    current_output_tokens = usage_info.get('output_tokens')
+
+                    # Assign all collected token data
+                    assistant_msg_obj.input_tokens = current_input_tokens
+                    assistant_msg_obj.output_tokens = current_output_tokens
+                    assistant_msg_obj.cache_creation_input_tokens = current_cache_creation_tokens
+                    assistant_msg_obj.cache_read_input_tokens = current_cache_read_tokens
+
+                    await database_sync_to_async(assistant_msg_obj.save)(
+                        update_fields=[
+                            'message',
+                            'input_tokens',
+                            'output_tokens',
+                            'cache_creation_input_tokens',
+                            'cache_read_input_tokens'
+                        ]
+                    )
                     stop_reason = chunk_data.get("stop_reason")
                     await self.send_to_client({
                         'type': 'stream_end',
                         'assistant_message_id': assistant_msg_obj.id,
-                        'full_content': accumulated_content,
-                        'stop_reason': stop_reason
+                        'full_content': accumulated_content, # Send the final full content
+                        'stop_reason': stop_reason,
+                        'usage': { # Send all collected usage back to client
+                            'input_tokens': current_input_tokens,
+                            'output_tokens': current_output_tokens,
+                            'cache_creation_input_tokens': current_cache_creation_tokens,
+                            'cache_read_input_tokens': current_cache_read_tokens,
+                        }
                     })
                     await self.send_to_client({'type': 'unlock_sidebar'})
                     return False
                 elif chunk_type == "metadata":
+                    data_payload = chunk_data.get('data', {})
+                    current_input_tokens = data_payload.get('input_tokens')
+                    current_cache_creation_tokens = data_payload.get('cache_creation_input_tokens')
+                    current_cache_read_tokens = data_payload.get('cache_read_input_tokens')
                     pass # Handle metadata if needed
 
                 return True
@@ -473,8 +541,12 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
             api_messages = await self.get_formatted_message_history(chat, target_message.parent) 
 
             accumulated_content = ""
+            current_input_tokens = None
+            current_cache_creation_tokens = None
+            current_cache_read_tokens = None
+            current_output_tokens = None
             async def on_chunk(chunk_data): # chunk_data is now standardized
-                nonlocal accumulated_content
+                nonlocal accumulated_content, current_input_tokens, current_cache_creation_tokens, current_cache_read_tokens, current_output_tokens
                 if self.cancel_stream_flag.is_set():
                     target_message.message = accumulated_content
                     await database_sync_to_async(target_message.save)(update_fields=['message'])
@@ -501,19 +573,50 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                             'text_delta': delta_text
                         })
                 elif chunk_type == "stop":
-                    final_data = chunk_data.get("text_delta", "")
-                    target_message.message = accumulated_content + final_data
-                    await database_sync_to_async(target_message.save)(update_fields=['message'])
+                    final_data = chunk_data.get("text_delta", "") # Anthropic might not send text_delta in message_delta
+                    accumulated_content += final_data # Ensure any final text is appended
+
+                    target_message.message = accumulated_content # Save full content
+
+                    # Get usage from the stop chunk
+                    usage_info = chunk_data.get("usage", {})
+                    current_output_tokens = usage_info.get('output_tokens')
+
+                    # Assign all collected token data
+                    target_message.input_tokens = current_input_tokens
+                    target_message.output_tokens = current_output_tokens
+                    target_message.cache_creation_input_tokens = current_cache_creation_tokens
+                    target_message.cache_read_input_tokens = current_cache_read_tokens
+
+                    await database_sync_to_async(target_message.save)(
+                        update_fields=[
+                            'message',
+                            'input_tokens',
+                            'output_tokens',
+                            'cache_creation_input_tokens',
+                            'cache_read_input_tokens'
+                        ]
+                    )
                     stop_reason = chunk_data.get("stop_reason")
                     await self.send_to_client({
                         'type': 'stream_end',
                         'assistant_message_id': target_message.id,
-                        'full_content': accumulated_content,
-                        'stop_reason': stop_reason
+                        'full_content': accumulated_content, # Send the final full content
+                        'stop_reason': stop_reason,
+                        'usage': { # Send all collected usage back to client
+                            'input_tokens': current_input_tokens,
+                            'output_tokens': current_output_tokens,
+                            'cache_creation_input_tokens': current_cache_creation_tokens,
+                            'cache_read_input_tokens': current_cache_read_tokens,
+                        }
                     })
                     await self.send_to_client({'type': 'unlock_sidebar'})
                     return False
                 elif chunk_type == "metadata":
+                    data_payload = chunk_data.get('data', {})
+                    current_input_tokens = data_payload.get('input_tokens')
+                    current_cache_creation_tokens = data_payload.get('cache_creation_input_tokens')
+                    current_cache_read_tokens = data_payload.get('cache_read_input_tokens')
                     pass # Handle metadata if needed
                 return True
 
