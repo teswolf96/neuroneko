@@ -74,7 +74,13 @@ class AIEndpointForm(forms.ModelForm):
 class AIModelForm(forms.ModelForm):
     class Meta:
         model = AIModel
-        fields = ['name', 'model_id', 'endpoint', 'default_temperature', 'default_max_tokens', 'input_cost_per_million_tokens', 'output_cost_per_million_tokens', 'currency']
+        fields = [
+            'name', 'model_id', 'endpoint', 
+            'default_temperature', 'default_max_tokens', 
+            'input_cost_per_million_tokens', 'output_cost_per_million_tokens', 
+            'cache_creation_cost_per_million_tokens', 'cache_read_cost_per_million_tokens',
+            'currency'
+        ]
         widgets = {
             'name': forms.TextInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
             'model_id': forms.TextInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
@@ -83,6 +89,8 @@ class AIModelForm(forms.ModelForm):
             'default_max_tokens': forms.NumberInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
             'input_cost_per_million_tokens': forms.NumberInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
             'output_cost_per_million_tokens': forms.NumberInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
+            'cache_creation_cost_per_million_tokens': forms.NumberInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
+            'cache_read_cost_per_million_tokens': forms.NumberInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
             'currency': forms.TextInput(attrs={'class': 'mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm'}),
         }
         help_texts = {
@@ -93,6 +101,8 @@ class AIModelForm(forms.ModelForm):
             'default_max_tokens': "Default max tokens for this model. Leave blank to use user/endpoint default.",
             'input_cost_per_million_tokens': "Cost for 1 million input tokens (e.g., 0.50 for $0.50/1M tokens).",
             'output_cost_per_million_tokens': "Cost for 1 million output tokens (e.g., 1.50 for $1.50/1M tokens).",
+            'cache_creation_cost_per_million_tokens': "Cost for 1 million cache creation tokens. Leave blank if not applicable.",
+            'cache_read_cost_per_million_tokens': "Cost for 1 million cache read tokens. Leave blank if not applicable.",
             'currency': "Currency code for the cost (e.g., USD, EUR).",
         }
 
