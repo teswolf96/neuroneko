@@ -1766,7 +1766,7 @@
             });
 
             // New Folder button functionality
-            if (newFolderButton) {
+            if (newFolderButton && !newFolderButton.dataset.folderListenerAttached) {
                 newFolderButton.addEventListener('click', function() {
                     const folderName = window.prompt("Enter the name for the new folder:");
                     if (folderName && folderName.trim() !== "") {
@@ -1798,6 +1798,7 @@
                         });
                     }
                 });
+                newFolderButton.dataset.folderListenerAttached = 'true';
             }
             });
 
