@@ -517,6 +517,20 @@
             let currentAssistantMessageContentEl = null; // Store the content DOM element of the assistant message
             const costEstimationDisplayEl = document.getElementById('cost-estimation-display');
 
+            // WebSocket Reconnection State
+            let reconnectAttempts = 0;
+            const maxReconnectAttempts = 10; // Max 10 attempts
+            const initialReconnectDelay = 1000; // Start with 1 second
+            const maxReconnectDelay = 30000; // Max 30 seconds
+            let currentReconnectDelay = initialReconnectDelay;
+            let reconnectTimerId = null;
+            let isAttemptingReconnect = false;
+            let isDeliberatelyClosingSocket = false; // Flag for deliberate closes
+            const connectionStatusEl = document.createElement('div');
+            connectionStatusEl.id = 'websocket-connection-status';
+            connectionStatusEl.className = 'fixed bottom-0 left-0 w-full bg-gray-800 text-white text-center p-2 text-sm hidden z-50';
+            document.body.appendChild(connectionStatusEl);
+
             // Cancel button (initially hidden)
             const cancelGenerationButton = document.createElement('button');
             cancelGenerationButton.id = 'cancel-generation-button';
@@ -537,9 +551,14 @@
 
 
             function connectWebSocket(chatId) {
-                if (chatSocket) {
+                if (chatSocket && chatSocket.readyState !== WebSocket.CLOSED) {
+                    console.log("Closing existing WebSocket connection before opening new one.");
+                    isDeliberatelyClosingSocket = true; // Signal that this close is intentional
                     chatSocket.close();
                 }
+                // Reset for the new connection attempt, in case onopen doesn't fire (e.g. immediate error)
+                isDeliberatelyClosingSocket = false; 
+
                 const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
                 // Ensure chat_id is valid before trying to connect
                 if (!chatId || chatId === 'null' || chatId === 'undefined') {
@@ -552,7 +571,22 @@
 
                 chatSocket.onopen = function(e) {
                     console.log(`WebSocket connection opened for chat ${chatId}`);
-                    requestCostEstimation(); // Call here to ensure socket is open for initial estimation
+                    // updateConnectionStatusUI('Reconnected successfully.', 'success', true); // Show success briefly
+                    reconnectAttempts = 0;
+                    currentReconnectDelay = initialReconnectDelay;
+                    clearTimeout(reconnectTimerId);
+                    reconnectTimerId = null;
+                    
+                    if (isAttemptingReconnect) { // This was a successful reconnection
+                        console.log("Successfully reconnected. Fetching latest chat state.");
+                        fetchAndRenderChat(currentChatId).then(() => {
+                             requestCostEstimation(); // Request cost estimation after chat is rendered
+                        });
+                    } else {
+                        requestCostEstimation(); // Initial connection, request cost estimation
+                    }
+                    isAttemptingReconnect = false;
+                    isDeliberatelyClosingSocket = false; // Reset flag on successful open
                 };
 
                 chatSocket.onmessage = function(e) {
@@ -668,18 +702,104 @@
                                 costEstimationDisplayEl.textContent = `Input Tokens: ${data.token_count}, Est. Cost: $${data.estimated_cost} (Note: This is an estimate)`;
                             }
                             break;
+                        default:
+                            console.warn("Received unknown WebSocket message type:", data.type, data);
+                            break;
                     }
                 };
 
                 chatSocket.onclose = function(e) {
-                    console.log('Chat socket closed ' + e.target.url);
-                    // Optionally, try to reconnect or notify user
+                    console.log(`Chat socket closed. Code: ${e.code}, Reason: ${e.reason}, Was Clean: ${e.wasClean}, Target URL: ${e.target.url}`);
+                    if (isDeliberatelyClosingSocket) {
+                        console.log("Socket closed deliberately by client. No reconnection attempt.");
+                        isDeliberatelyClosingSocket = false; // Reset flag
+                        return;
+                    }
+                    if (!e.wasClean && !isAttemptingReconnect && currentChatId) { // Only try to reconnect if there's an active chat context
+                        console.log("Unexpected closure, attempting to reconnect...");
+                        isAttemptingReconnect = true; // Set before first call to scheduleReconnect
+                        scheduleReconnect();
+                    } else if (e.wasClean && isAttemptingReconnect) {
+                        // This can happen if a reconnect attempt fails (e.g. server not available), leading to a 'clean' close by the browser for that attempt.
+                        // We should continue the reconnect schedule.
+                        console.log("Clean close during reconnect attempt, continuing schedule.");
+                        scheduleReconnect();
+                    } else if (!currentChatId) {
+                        console.log("Socket closed but no currentChatId, so not attempting reconnection.");
+                        updateConnectionStatusUI('Disconnected. Select a chat to connect.', 'error');
+                    }
                 };
 
                 chatSocket.onerror = function(err) {
-                    console.error('WebSocket encountered error: ', err.message, 'Closing socket');
-                    chatSocket.close();
+                    console.error('WebSocket encountered error: ', err, 'State:', chatSocket.readyState);
+                    // Don't close the socket here, onclose will handle it.
+                    // If not already attempting to reconnect, and there's a current chat, start the process.
+                    // This is a fallback in case onclose isn't triggered or doesn't catch the scenario.
+                    if (!isAttemptingReconnect && currentChatId && chatSocket.readyState !== WebSocket.OPEN) {
+                         // Check readyState to avoid triggering if error occurs but socket is still somehow open or closing.
+                        console.warn("WebSocket error, ensuring reconnection attempt is scheduled if not already.");
+                        isAttemptingReconnect = true; // Set before first call
+                        scheduleReconnect(); // Error might not always trigger onclose immediately or as expected
+                    }
                 };
+            }
+
+            function updateConnectionStatusUI(message, type = 'info', autoHide = false) {
+                if (!connectionStatusEl) return;
+                connectionStatusEl.textContent = message;
+                connectionStatusEl.classList.remove('bg-red-500', 'bg-green-500', 'bg-yellow-500', 'bg-gray-800'); // Clear previous colors
+
+                if (type === 'error') {
+                    connectionStatusEl.classList.add('bg-red-500');
+                } else if (type === 'success') {
+                    connectionStatusEl.classList.add('bg-green-500');
+                } else if (type === 'warning') {
+                    connectionStatusEl.classList.add('bg-yellow-500');
+                } else { // info or default
+                    connectionStatusEl.classList.add('bg-gray-800');
+                }
+                connectionStatusEl.classList.remove('hidden');
+
+                if (autoHide) {
+                    setTimeout(() => {
+                        connectionStatusEl.classList.add('hidden');
+                    }, 3000); // Hide after 3 seconds
+                }
+            }
+
+            function scheduleReconnect() {
+                if (reconnectAttempts >= maxReconnectAttempts) {
+                    console.log("Max reconnect attempts reached. Giving up.");
+                    updateConnectionStatusUI('Failed to reconnect. Please check your network and refresh.', 'error');
+                    isAttemptingReconnect = false; // Stop further attempts
+                    return;
+                }
+                
+                // Clear any existing timer before setting a new one
+                if (reconnectTimerId) {
+                    clearTimeout(reconnectTimerId);
+                }
+
+                const delaySeconds = currentReconnectDelay / 1000;
+                updateConnectionStatusUI(`Connection lost. Retrying in ${delaySeconds.toFixed(0)}s... (Attempt ${reconnectAttempts + 1}/${maxReconnectAttempts})`, 'warning');
+                
+                console.log(`Scheduling reconnect attempt ${reconnectAttempts + 1} in ${currentReconnectDelay}ms for chat ${currentChatId}`);
+                
+                reconnectTimerId = setTimeout(() => {
+                    if (!currentChatId) {
+                        console.log("No current chat ID, aborting reconnect attempt.");
+                        updateConnectionStatusUI('Disconnected. Select a chat to connect.', 'error');
+                        isAttemptingReconnect = false;
+                        reconnectAttempts = 0; // Reset for when a chat is selected
+                        currentReconnectDelay = initialReconnectDelay;
+                        return;
+                    }
+                    console.log(`Attempting to reconnect (attempt ${reconnectAttempts + 1})...`);
+                    connectWebSocket(currentChatId); // connectWebSocket will handle incrementing attempts if it fails to open
+                }, currentReconnectDelay);
+
+                reconnectAttempts++;
+                currentReconnectDelay = Math.min(currentReconnectDelay * 2, maxReconnectDelay);
             }
 
             // Function to render a single message
