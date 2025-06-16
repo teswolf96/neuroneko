@@ -517,6 +517,89 @@
             let currentAssistantMessageContentEl = null; // Store the content DOM element of the assistant message
             const costEstimationDisplayEl = document.getElementById('cost-estimation-display');
 
+            // --- WebSocket Reconnection Variables ---
+            let reconnectAttempts = 0;
+            const maxReconnectAttempts = 5; // Max number of reconnection attempts
+            const initialReconnectDelay = 1000; // Initial delay in ms (1 second)
+            const maxReconnectDelay = 30000; // Max delay in ms (30 seconds)
+            let currentReconnectDelay = initialReconnectDelay;
+            let reconnectTimeoutId = null; // To store the timeout ID for scheduled reconnections
+            let isManuallyClosing = false; // Flag to distinguish manual/intentional closure
+            // --- End WebSocket Reconnection Variables ---
+
+            // --- WebSocket Reconnection Functions ---
+            function updateConnectionStatus(message, isError = false) {
+                // Placeholder for UI updates. For now, we'll log to console.
+                // Example:
+                // const statusEl = document.getElementById('connection-status-display'); // Assuming you add such an element
+                // if (statusEl) {
+                //     statusEl.textContent = message;
+                //     statusEl.className = isError ? 'text-red-500 text-xs' : 'text-gray-500 text-xs';
+                // }
+                console.log(`WebSocket Status: ${message}`);
+            }
+
+            function attemptReconnect() {
+                clearTimeout(reconnectTimeoutId);
+                if (!currentChatId) {
+                    console.warn("Cannot reconnect: No currentChatId.");
+                    updateConnectionStatus("Disconnected. Select a chat to connect.", true);
+                    return;
+                }
+                if (reconnectAttempts >= maxReconnectAttempts) {
+                    console.error("Max reconnection attempts reached. Giving up.");
+                    updateConnectionStatus("Disconnected. Max attempts reached. Please refresh.", true);
+                    return;
+                }
+                
+                reconnectAttempts++;
+                console.log(`Attempting reconnect ${reconnectAttempts}/${maxReconnectAttempts} in ${currentReconnectDelay}ms for chat ${currentChatId}...`);
+                updateConnectionStatus(`Connecting... (Attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
+                
+                // Schedule the actual connection attempt
+                reconnectTimeoutId = setTimeout(() => {
+                    connectWebSocket(currentChatId); // This will try to establish a new connection
+                }, currentReconnectDelay);
+
+                // Exponential backoff for the next potential attempt
+                currentReconnectDelay = Math.min(currentReconnectDelay * 2, maxReconnectDelay);
+            }
+
+            function handleDisconnection(event) {
+                if (isManuallyClosing) {
+                    console.log("WebSocket closed manually, no reconnection attempt.");
+                    isManuallyClosing = false; // Reset flag
+                    updateConnectionStatus("Disconnected."); // Update status for manual closure
+                    return;
+                }
+
+                let reason = "WebSocket closed unexpectedly.";
+                if (event) {
+                    if (event.type === 'error') {
+                        reason = "WebSocket error occurred.";
+                        console.error(reason, event);
+                    } else if (event.code) {
+                        reason = `WebSocket closed with code ${event.code}${event.reason ? `: ${event.reason}` : ''}.`;
+                        console.warn(reason);
+                    }
+                }
+                updateConnectionStatus(reason + " Attempting to reconnect...", true);
+
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    // No need to increment reconnectAttempts here, attemptReconnect will do it
+                    // No need to schedule here, attemptReconnect will handle its own scheduling logic if called
+                    // The first call to attemptReconnect will be from onclose/onerror
+                    // Subsequent calls are scheduled by attemptReconnect itself.
+                    // For the *first* disconnection, we schedule attemptReconnect directly.
+                    clearTimeout(reconnectTimeoutId); // Clear any previous one
+                    reconnectTimeoutId = setTimeout(attemptReconnect, currentReconnectDelay); // Schedule the first attempt
+                } else {
+                    console.error("Max reconnection attempts already reached. Not scheduling further attempts.");
+                    updateConnectionStatus("Disconnected. Max reconnection attempts reached. Please refresh.", true);
+                }
+            }
+            // --- End WebSocket Reconnection Functions ---
+
             // Cancel button (initially hidden)
             const cancelGenerationButton = document.createElement('button');
             cancelGenerationButton.id = 'cancel-generation-button';
@@ -537,9 +620,13 @@
 
 
             function connectWebSocket(chatId) {
-                if (chatSocket) {
+                if (chatSocket && chatSocket.readyState !== WebSocket.CLOSED) {
+                    isManuallyClosing = true; // Set flag before intentionally closing
                     chatSocket.close();
                 }
+                // Reset for the new connection attempt, in case this is a reconnect
+                isManuallyClosing = false; 
+                
                 const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
                 // Ensure chat_id is valid before trying to connect
                 if (!chatId || chatId === 'null' || chatId === 'undefined') {
@@ -552,6 +639,11 @@
 
                 chatSocket.onopen = function(e) {
                     console.log(`WebSocket connection opened for chat ${chatId}`);
+                    // Reset reconnection variables on successful connection
+                    reconnectAttempts = 0;
+                    currentReconnectDelay = initialReconnectDelay;
+                    clearTimeout(reconnectTimeoutId); // Clear any pending reconnect timeout
+                    updateConnectionStatus("Connected");
                     requestCostEstimation(); // Call here to ensure socket is open for initial estimation
                 };
 
@@ -672,13 +764,15 @@
                 };
 
                 chatSocket.onclose = function(e) {
-                    console.log('Chat socket closed ' + e.target.url);
-                    // Optionally, try to reconnect or notify user
+                    // console.log('Chat socket closed ' + e.target.url); // Original log
+                    handleDisconnection(e); // Call new handler
                 };
 
                 chatSocket.onerror = function(err) {
-                    console.error('WebSocket encountered error: ', err.message, 'Closing socket');
-                    chatSocket.close();
+                    // console.error('WebSocket encountered error: ', err.message, 'Closing socket'); // Original log
+                    // err is an Event object, not the error message itself directly for handleDisconnection
+                    handleDisconnection(err); // Call new handler
+                    // No need to call chatSocket.close() here, as onerror is often followed by onclose.
                 };
             }
 
