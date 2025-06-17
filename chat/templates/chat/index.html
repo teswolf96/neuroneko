@@ -524,7 +524,7 @@
             const maxReconnectDelay = 30000; // Max delay in ms (30 seconds)
             let currentReconnectDelay = initialReconnectDelay;
             let reconnectTimeoutId = null; // To store the timeout ID for scheduled reconnections
-            let isManuallyClosing = false; // Flag to distinguish manual/intentional closure
+            // let isManuallyClosing = false; // Flag to distinguish manual/intentional closure - REMOVED GLOBAL FLAG
             // --- End WebSocket Reconnection Variables ---
 
             // --- WebSocket Reconnection Functions ---
@@ -566,10 +566,11 @@
             }
 
             function handleDisconnection(event) {
-                if (isManuallyClosing) {
-                    console.log("WebSocket closed manually, no reconnection attempt.");
-                    isManuallyClosing = false; // Reset flag
-                    updateConnectionStatus("Disconnected."); // Update status for manual closure
+                // Check a property on the socket instance itself
+                const socketInstance = event.target;
+                if (socketInstance && socketInstance.isBeingReplaced) {
+                    console.log("WebSocket closed because it's being replaced, no reconnection attempt for this instance.");
+                    updateConnectionStatus("Disconnected (switching chat).");
                     return;
                 }
 
@@ -621,11 +622,17 @@
 
             function connectWebSocket(chatId) {
                 if (chatSocket && chatSocket.readyState !== WebSocket.CLOSED) {
-                    isManuallyClosing = true; // Set flag before intentionally closing
+                    // Mark the old socket as being intentionally replaced
+                    chatSocket.isBeingReplaced = true; 
                     chatSocket.close();
+                    // Detach old handlers to be absolutely sure they don't interfere
+                    // though isBeingReplaced should be sufficient.
+                    // chatSocket.onopen = null;
+                    // chatSocket.onmessage = null;
+                    // chatSocket.onclose = null;
+                    // chatSocket.onerror = null;
                 }
-                // Reset for the new connection attempt, in case this is a reconnect
-                isManuallyClosing = false; 
+                // No global isManuallyClosing flag to reset here.
                 
                 const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
                 // Ensure chat_id is valid before trying to connect
