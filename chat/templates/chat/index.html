@@ -706,13 +706,11 @@
                             unlockSidebar(); // Calls unlockGlobalUIAfterGenerationEnd, which handles UI states and currentAssistantMessageId
 
                             if (wasGeneratingAPlaceholder && currentChatId) {
-                                // const activeChatListItem = document.querySelector(`.chat-item.bg-blue-600[data-chat-id="${currentChatId}"]`);
-                                // if (activeChatListItem) {
-                                //     console.log("Generation attempt involving a placeholder finished, re-fetching chat details to update message tree.");
-                                //     activeChatListItem.click(); // This will re-fetch, re-render, and scroll to bottom.
-                                // }
-                                console.log("Generation attempt finished, reloading page to reflect potential sort order changes.");
-                                window.location.reload();
+                                const activeChatListItem = document.querySelector(`.chat-item.bg-blue-600[data-chat-id="${currentChatId}"]`);
+                                if (activeChatListItem) {
+                                    console.log("Generation attempt involving a placeholder finished, re-fetching chat details to update message tree.");
+                                    activeChatListItem.click(); // This will re-fetch, re-render, and scroll to bottom.
+                                }
                             }
                             break;
                         case 'stream_chunk':
@@ -977,14 +975,13 @@
                         })
                         .then(data => {
                             // Update the raw content store (msg.content) if possible, or re-fetch for consistency
-                            // msg.content = newText; // Update local msg object
-                            // contentP.innerHTML = renderMarkdownSafe(newText);
-                            // attachCopyCodeListeners(contentP);
-                            // // Restore UI
-                            // editingInterfaceDiv.remove();
-                            // contentP.style.display = '';
-                            // iconsDiv.style.display = 'flex'; // Assuming it was flex
-                            window.location.reload(); // Reload to reflect sort order change
+                            msg.content = newText; // Update local msg object
+                            contentP.innerHTML = renderMarkdownSafe(newText);
+                            attachCopyCodeListeners(contentP);
+                            // Restore UI
+                            editingInterfaceDiv.remove();
+                            contentP.style.display = '';
+                            iconsDiv.style.display = 'flex'; // Assuming it was flex
                         })
                         .catch(error => {
                             console.error('Error updating message content:', error);
@@ -1251,7 +1248,17 @@
                         })
                         .then(data => {
                             console.log('Message deletion successful:', data.message);
-                            window.location.reload(); // Reload to reflect sort order change
+                            // Re-fetch chat details to update UI
+                            const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                            if (activeChatListItem) {
+                                activeChatListItem.click();
+                            } else if (currentChatId) { // Fallback if active class is lost
+                                const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                                if (targetChatLink) {
+                                    const targetChatItem = targetChatLink.closest('.chat-item');
+                                    if (targetChatItem) targetChatItem.click();
+                                }
+                            }
                         })
                         .catch(error => {
                             console.error('Error deleting message:', error);
@@ -1288,7 +1295,17 @@
                     })
                     .then(data => {
                         console.log('Add sibling successful:', data.message);
-                        window.location.reload(); // Reload to reflect sort order change
+                        // Re-fetch chat details to update UI
+                        const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                        if (activeChatListItem) {
+                            activeChatListItem.click();
+                        } else if (currentChatId) {
+                            const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                            if (targetChatLink) {
+                                const targetChatItem = targetChatLink.closest('.chat-item');
+                                if (targetChatItem) targetChatItem.click();
+                            }
+                        }
                     })
                     .catch(error => {
                         console.error('Error adding sibling message:', error);
@@ -1441,7 +1458,17 @@
                         })
                         .then(data => {
                             console.log('Children deletion successful:', data.message);
-                            window.location.reload(); // Reload to reflect sort order change
+                            // Re-fetch chat details to update UI
+                            const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                            if (activeChatListItem) {
+                                activeChatListItem.click();
+                            } else if (currentChatId) {
+                                const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                                if (targetChatLink) {
+                                    const targetChatItem = targetChatLink.closest('.chat-item');
+                                    if (targetChatItem) targetChatItem.click();
+                                }
+                            }
                         })
                         .catch(error => {
                             console.error('Error deleting children:', error);
@@ -1480,7 +1507,17 @@
                             })
                             .then(data => {
                                 console.log('Message clean remove successful:', data.message);
-                                window.location.reload(); // Reload to reflect sort order change
+                                // Re-fetch chat details to update UI
+                                const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                                if (activeChatListItem) {
+                                    activeChatListItem.click();
+                                } else if (currentChatId) {
+                                    const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                                    if (targetChatLink) {
+                                        const targetChatItem = targetChatLink.closest('.chat-item');
+                                        if (targetChatItem) targetChatItem.click();
+                                    }
+                                }
                             })
                             .catch(error => {
                                 console.error('Error clean removing message:', error);
@@ -1597,7 +1634,17 @@
                         })
                         .then(data => {
                             console.log('Add child message successful:', data.message);
-                            window.location.reload(); // Reload to reflect sort order change
+                            // Refresh the chat view (same logic as Save button)
+                            const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                            if (activeChatListItem) {
+                                activeChatListItem.click();
+                            } else if (currentChatId) {
+                                const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                                if (targetChatLink) {
+                                    const targetChatItem = targetChatLink.closest('.chat-item');
+                                    if (targetChatItem) targetChatItem.click();
+                                }
+                            }
                         })
                         .catch(error => {
                             console.error('Error adding child message:', error);
@@ -1917,12 +1964,21 @@
                         }
                         return response.json();
                     })
-                        .then(data => {
-                            if (data.status === 'success' && data.message) {
-                                // messageInputTextarea.value = ''; // Clearing input is less critical if page reloads
-                                window.location.reload(); // Reload to reflect sort order change
-                            } else {
-                                alert('Error saving message: ' + (data.error || 'Unknown error'));
+                    .then(data => {
+                        if (data.status === 'success' && data.message) {
+                            messageInputTextarea.value = ''; 
+                            const activeChatListItem = document.querySelector('.chat-item.bg-blue-600');
+                            if (activeChatListItem) {
+                                activeChatListItem.click(); 
+                            } else if (currentChatId) { 
+                                 const targetChatLink = document.querySelector(`.chat-link[data-chat-id="${currentChatId}"]`);
+                                 if (targetChatLink) {
+                                     const targetChatItem = targetChatLink.closest('.chat-item');
+                                     if (targetChatItem) targetChatItem.click();
+                                 }
+                            }
+                        } else {
+                            alert('Error saving message: ' + (data.error || 'Unknown error'));
                         }
                     })
                     .catch(error => {
@@ -2250,10 +2306,9 @@
                                 })
                                 .then(data => {
                                     if (data.status === 'success') {
-                                        // chatLink.textContent = data.new_title//.substring(0, 60) + (data.new_title.length > 60 ? '...' : '');
-                                        // chatItem.dataset.chatFullTitle = data.new_title; // Update the full title
-                                        // revertToDisplay();
-                                        window.location.reload(); // Reload to reflect sort order change
+                                        chatLink.textContent = data.new_title//.substring(0, 60) + (data.new_title.length > 60 ? '...' : '');
+                                        chatItem.dataset.chatFullTitle = data.new_title; // Update the full title
+                                        revertToDisplay();
                                     } else {
                                         alert('Error renaming chat: ' + (data.error || 'Unknown error'));
                                         revertToDisplay(); // Revert on error
@@ -2905,11 +2960,8 @@
                                 chatItemToUpdate.dataset.chatFullTitle = data.new_title;
                                 // Optionally, display a success message to the user
                                 // alert('Chat title regenerated successfully!');
-                                window.location.reload(); // Reload to reflect sort order change
                             } else {
                                 console.warn(`Chat item with ID ${data.chat_id} not found in the sidebar to update title.`);
-                                // If chat item not found, still reload to be safe or handle error differently
-                                window.location.reload(); 
                             }
                         } else {
                             alert('Error regenerating title: ' + (data.error || 'Unknown error from server.'));
@@ -2920,18 +2972,9 @@
                         alert('Error regenerating title: ' + error.message);
                     })
                     .finally(() => {
-                        // Button text and disabled state will be reset by page reload.
-                        // unlockSidebar() might still be relevant if an error occurred before reload.
-                        // For consistency, let's assume reload handles UI reset.
-                        // If error, unlock is important.
-                        // If the call was successful and reloaded, this.disabled might be true from before reload.
-                        // If an error occurred and it didn't reload, then we need to reset.
-                        const self = this; // Capture 'this'
-                        if (self.disabled) { // Check if it's still disabled (e.g. error path didn't reload)
-                           self.textContent = 'Regen Title';
-                           self.disabled = false;
-                        }
-                        unlockSidebar(); 
+                        this.textContent = 'Regen Title'; // Reset button text
+                        this.disabled = false; // Re-enable button
+                        unlockSidebar(); // Unlock the sidebar regardless of success or failure
                     });
                 });
             }
