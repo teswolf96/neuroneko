@@ -1,5 +1,5 @@
 # NeuroNeko
-![NeuroNeko Logo](static/neuroneko.png)
+<img src="static/neuroneko.png" alt="NeuroNeko Logo" width="200"/>
 
 **NeuroNeko: Your personal, powerful, and highly configurable AI chat interface.**
 
