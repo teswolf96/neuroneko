@@ -88,6 +88,7 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
             assistant_msg_obj.message = stream_context['accumulated_content']
             # Save partial content on cancellation
             await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
+            await self._save_chat(assistant_msg_obj.chat) # Update chat's updated_at
             await self.send_to_client({
                 'type': 'stream_cancelled',
                 'assistant_message_id': assistant_msg_obj.id,
@@ -100,6 +101,7 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
             error_message = chunk_data.get("message", "Unknown API error during stream.")
             assistant_msg_obj.message = f"Error: {error_message}"
             await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
+            await self._save_chat(assistant_msg_obj.chat) # Update chat's updated_at
             await self.send_error_to_client(f"API Error: {error_message}", assistant_msg_obj.id)
             return False
 
@@ -135,6 +137,7 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                     'cache_read_input_tokens'
                 ]
             )
+            await self._save_chat(assistant_msg_obj.chat) # Update chat's updated_at
             
             stop_reason = chunk_data.get("stop_reason")
             cost_details = await database_sync_to_async(assistant_msg_obj.get_cost_details)()
@@ -192,6 +195,7 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
             if not assistant_msg_obj.message or "Error:" not in assistant_msg_obj.message:
                  assistant_msg_obj.message = stream_context.get('accumulated_content', "") + f"\nError during stream: {str(e)}"
                  await database_sync_to_async(assistant_msg_obj.save)(update_fields=['message'])
+                 await self._save_chat(assistant_msg_obj.chat) # Update chat's updated_at
             await self.send_error_to_client(f"Server error during generation stream: {str(e)}", assistant_msg_obj.id)
         finally:
             await self.send_to_client({'type': 'unlock_sidebar'})
@@ -326,6 +330,7 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                 parent=last_active_message
             )
             await database_sync_to_async(self.set_as_active_child)(last_active_message, user_msg_obj)
+            await self._save_chat(chat) # Update chat's updated_at after user message
             
             await self.send_to_client({
                 'type': 'user_message_created',
@@ -403,6 +408,7 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
                 parent=parent_message
             )
             await database_sync_to_async(self.set_as_active_child)(parent_message, assistant_msg_obj)
+            await self._save_chat(chat) # Update chat's updated_at after assistant placeholder
             
             await self.send_to_client({
                 'type': 'assistant_message_placeholder_created',
@@ -504,6 +510,10 @@ class StreamingChatConsumer(AsyncWebsocketConsumer):
         # This needs to be a sync method called by database_sync_to_async
         parent_msg_obj.active_child = child_msg_obj
         parent_msg_obj.save(update_fields=['active_child'])
+
+    @database_sync_to_async
+    def _save_chat(self, chat_obj: Chat):
+        chat_obj.save()
 
     @database_sync_to_async
     def get_formatted_message_history(self, chat_obj: Chat, last_message_in_history: Message):

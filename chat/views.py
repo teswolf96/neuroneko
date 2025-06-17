@@ -34,7 +34,7 @@ def index_view(request):
 
     # Prepare folder structure
     folders = Folder.objects.filter(user=request.user) \
-                      .annotate(last_activity_ts=Max('chats_in_folder__messages__created_at')) \
+                      .annotate(last_activity_ts=Max('chats_in_folder__updated_at')) \
                       .order_by(F('last_activity_ts').desc(nulls_last=True), 'name') \
                       .prefetch_related('chats_in_folder')
     folder_structure = []
@@ -42,8 +42,7 @@ def index_view(request):
 
     for folder in folders:
         folder_chats = list(folder.chats_in_folder.all()
-                                  .annotate(last_message_ts=Max('messages__created_at'))
-                                  .order_by(F('last_message_ts').desc(nulls_last=True), '-created_at')) # Order chats in folder
+                                  .order_by('-updated_at', '-created_at')) # Order chats by updated_at then created_at
         folder_structure.append({
             'id': folder.id,  # Add folder ID
             'name': folder.name,
@@ -55,8 +54,7 @@ def index_view(request):
 
     # Chats not in any folder
     other_chats = Chat.objects.filter(user=request.user).exclude(id__in=chats_in_folders_ids) \
-                                .annotate(last_message_ts=Max('messages__created_at')) \
-                                .order_by(F('last_message_ts').desc(nulls_last=True), '-created_at')
+                                .order_by('-updated_at', '-created_at') # Order chats by updated_at then created_at
     if other_chats.exists():
         folder_structure.append({'name': "Other Chats", 'chats': list(other_chats)})
     
@@ -757,6 +755,7 @@ def add_message_to_chat_api(request, chat_id):
         # Set the new message as the active child of its parent
         parent_message.active_child = new_message
         parent_message.save()
+        chat.save() # Update chat's updated_at
 
     return JsonResponse({
         'status': 'success',
@@ -780,6 +779,7 @@ def update_message_content_api(request, chat_id, message_id):
     
     message_obj.message = new_content
     message_obj.save()
+    message_obj.chat.save() # Update chat's updated_at
     return JsonResponse({'status': 'success', 'message': 'Message updated.'})
 
 @login_required
@@ -798,6 +798,7 @@ def update_message_role_api(request, chat_id, message_id):
     
     message_obj.role = new_role
     message_obj.save()
+    message_obj.chat.save() # Update chat's updated_at
     return JsonResponse({'status': 'success', 'message': 'Role updated.'})
 
 
@@ -826,7 +827,9 @@ def delete_message_api(request, chat_id, message_id):
 
 
         # Deleting a message will cascade delete its children due to on_delete=models.CASCADE on Message.parent
+        chat_instance_to_update = message_to_delete.chat # Get chat before deleting message
         message_to_delete.delete()
+        chat_instance_to_update.save() # Update chat's updated_at
 
     return JsonResponse({'status': 'success', 'message': 'Message and its replies deleted successfully.'})
 
@@ -873,6 +876,7 @@ def clean_remove_message_api(request, chat_id, message_id):
     # This scenario is covered if children_of_message_to_remove[0] was the active_child of message_to_remove.
 
     message_to_remove.delete()
+    chat_instance.save() # Update chat's updated_at
 
     return JsonResponse({'status': 'success', 'message': 'Message cleanly removed and children reparented.'})
 
@@ -902,6 +906,7 @@ def add_sibling_message_api(request, chat_id, source_message_id):
         )
         source_message.parent.active_child = new_sibling
         source_message.parent.save()
+        source_message.chat.save() # Update chat's updated_at
 
     return JsonResponse({
         'status': 'success',
@@ -930,6 +935,7 @@ def delete_children_api(request, chat_id, message_id):
     # Set active_child to None since all children are now deleted
     message.active_child = None
     message.save(update_fields=['active_child'])
+    message.chat.save() # Update chat's updated_at
     
     return JsonResponse({
         'status': 'success', 
@@ -955,6 +961,7 @@ def set_active_child_api(request, chat_id):
 
     parent_message.active_child = child_to_activate
     parent_message.save()
+    parent_message.chat.save() # Update chat's updated_at
 
     return JsonResponse({'status': 'success', 'message': 'Active child message updated.'})
 
@@ -1011,6 +1018,8 @@ def add_child_message_api(request, chat_id, parent_message_id):
             # Now, set new_empty_message as the active_child of the original parent_message.
             parent_message.active_child = new_empty_message
             parent_message.save(update_fields=['active_child'])
+        
+        chat_session.save() # Update chat's updated_at
     
     return JsonResponse({
         'status': 'success',
