@@ -14,7 +14,7 @@ from .models import Chat, Message, Folder, UserSettings, AIEndpoint, AIModel, Sa
 from .forms import UserSettingsForm, AIEndpointForm, AIModelForm, SavedPromptForm, IdeaForm
 from .api_client import test_endpoint, get_static_completion, get_models_from_provider # Updated imports
 from django.utils.html import escape
-from django.db.models import Q
+from django.db.models import Q, Max, F
 
 
 @login_required
@@ -33,12 +33,17 @@ def index_view(request):
     last_active_chat_id = user_settings.last_active_chat_id if user_settings.last_active_chat else None
 
     # Prepare folder structure
-    folders = Folder.objects.filter(user=request.user).prefetch_related('chats_in_folder').order_by('name')
+    folders = Folder.objects.filter(user=request.user) \
+                      .annotate(last_activity_ts=Max('chats_in_folder__messages__created_at')) \
+                      .order_by(F('last_activity_ts').desc(nulls_last=True), 'name') \
+                      .prefetch_related('chats_in_folder')
     folder_structure = []
     chats_in_folders_ids = set()
 
     for folder in folders:
-        folder_chats = list(folder.chats_in_folder.all().order_by('-created_at')) # Order chats in folder
+        folder_chats = list(folder.chats_in_folder.all()
+                                  .annotate(last_message_ts=Max('messages__created_at'))
+                                  .order_by(F('last_message_ts').desc(nulls_last=True), '-created_at')) # Order chats in folder
         folder_structure.append({
             'id': folder.id,  # Add folder ID
             'name': folder.name,
@@ -49,7 +54,9 @@ def index_view(request):
             chats_in_folders_ids.add(chat.id)
 
     # Chats not in any folder
-    other_chats = Chat.objects.filter(user=request.user).exclude(id__in=chats_in_folders_ids).order_by('-created_at')
+    other_chats = Chat.objects.filter(user=request.user).exclude(id__in=chats_in_folders_ids) \
+                                .annotate(last_message_ts=Max('messages__created_at')) \
+                                .order_by(F('last_message_ts').desc(nulls_last=True), '-created_at')
     if other_chats.exists():
         folder_structure.append({'name': "Other Chats", 'chats': list(other_chats)})
     
