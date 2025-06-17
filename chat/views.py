@@ -12,7 +12,7 @@ from asgiref.sync import async_to_sync # Added for sync view calling async code
 
 from .models import Chat, Message, Folder, UserSettings, AIEndpoint, AIModel, SavedPrompt, Idea
 from .forms import UserSettingsForm, AIEndpointForm, AIModelForm, SavedPromptForm, IdeaForm
-from .api_client import test_endpoint, get_static_completion # Updated imports
+from .api_client import test_endpoint, get_static_completion, get_models_from_provider # Updated imports
 from django.utils.html import escape
 from django.db.models import Q
 
@@ -322,6 +322,72 @@ def api_model_delete_view(request, pk):
     model_instance.delete()
     messages.success(request, f"AI Model '{model_name}' deleted successfully.")
     return redirect('api_config')
+
+@login_required
+def import_ai_models_view(request, endpoint_pk):
+    endpoint = get_object_or_404(AIEndpoint, pk=endpoint_pk, user=request.user)
+
+    if request.method == 'POST':
+        selected_model_ids_json = request.POST.getlist('selected_models') # Assuming checkboxes value is JSON string of model data
+        imported_count = 0
+        for model_json_str in selected_model_ids_json:
+            try:
+                model_data = json.loads(model_json_str) # Parse JSON string for each model
+                model_id = model_data.get('id')
+                model_name = model_data.get('name')
+
+                if not model_id or not model_name:
+                    messages.error(request, f"Invalid data for one of the selected models.")
+                    continue
+
+                # Check if model already exists for this endpoint
+                if not AIModel.objects.filter(endpoint=endpoint, model_id=model_id).exists():
+                    AIModel.objects.create(
+                        endpoint=endpoint,
+                        model_id=model_id,
+                        name=model_name
+                        # Add other defaults if necessary, or leave them blank
+                    )
+                    imported_count += 1
+                else:
+                    messages.warning(request, f"Model '{model_name}' (ID: {model_id}) already exists for this endpoint and was not re-imported.")
+            except json.JSONDecodeError:
+                messages.error(request, "Error decoding model data during import.")
+                continue # Skip this malformed entry
+
+        if imported_count > 0:
+            messages.success(request, f"Successfully imported {imported_count} model(s) for endpoint '{endpoint.name}'.")
+        elif not selected_model_ids_json:
+             messages.info(request, "No models were selected for import.")
+        else:
+            # This case might occur if all selected models already existed or there were errors
+            if not messages.get_messages(request): # Avoid duplicate messages if warnings/errors were already added
+                messages.info(request, "No new models were imported.")
+        return redirect('api_config')
+    else: # GET request
+        api_result = get_models_from_provider(endpoint)
+        importable_models = []
+        if api_result.get("status") == "success":
+            fetched_models = api_result.get("models", [])
+            existing_model_ids = set(AIModel.objects.filter(endpoint=endpoint).values_list('model_id', flat=True))
+            for model_data in fetched_models:
+                if model_data.get("id") not in existing_model_ids:
+                    importable_models.append(model_data) # model_data is like {'id': '...', 'name': '...'}
+            if not importable_models and fetched_models:
+                messages.info(request, f"All available models from '{endpoint.name}' ({endpoint.get_provider_display()}) are already configured or no new models found.")
+            elif not fetched_models:
+                 messages.info(request, f"No models were found for endpoint '{endpoint.name}' ({endpoint.get_provider_display()}). This might be an API issue or the provider has no models listed.")
+        else:
+            error_msg = api_result.get("message", "Unknown error fetching models.")
+            details = api_result.get("details")
+            if details:
+                error_msg += f" Details: {details.get('error_type', '')} - {details.get('error_message', '')}"
+            messages.error(request, f"Could not fetch models from '{endpoint.name}': {error_msg}")
+
+        return render(request, 'chat/import_ai_models_form.html', {
+            'endpoint': endpoint,
+            'importable_models': importable_models, # List of dicts
+        })
 
 @login_required
 @require_POST

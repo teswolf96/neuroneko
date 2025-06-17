@@ -1,0 +1,65 @@
+{% extends "chat/index.html" %}
+{% load static %}
+{% load json_filter %}
+
+{% block title %}Import AI Models for {{ endpoint.name }}{% endblock %}
+
+{% block content %}
+<div class="bg-gray-800 p-6 rounded-lg shadow-lg text-white">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-semibold">Import AI Models for Endpoint: <span class="text-blue-400">{{ endpoint.name }}</span> ({{ endpoint.get_provider_display }})</h2>
+        <a href="{% url 'api_config' %}" class="bg-gray-600 hover:bg-gray-500 text-white font-semibold py-2 px-4 rounded-md text-sm transition duration-150 ease-in-out">
+            &larr; Back to API Configuration
+        </a>
+    </div>
+
+    {% if messages %}
+        <div class="mb-4">
+            {% for message in messages %}
+                <div class="p-3 rounded text-sm {% if message.tags == 'success' %}bg-green-600{% elif message.tags == 'error' %}bg-red-600{% elif message.tags == 'warning' %}bg-yellow-600 text-black{% else %}bg-blue-600{% endif %} text-white">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    {% if importable_models %}
+        <form method="post" action="{% url 'import_ai_models' endpoint.pk %}" class="space-y-4">
+            {% csrf_token %}
+            <p class="text-gray-300 mb-3">Select the models you wish to import. Models already configured for this endpoint are not listed.</p>
+            
+            <div class="max-h-96 overflow-y-auto bg-gray-700 p-4 rounded-md border border-gray-600">
+                <ul class="space-y-2">
+                    {% for model_data in importable_models %}
+                    <li>
+                        <label class="flex items-center p-2 rounded-md hover:bg-gray-600 transition-colors duration-150 cursor-pointer">
+                            <input type="checkbox" name="selected_models" value='{{ model_data|to_json_string }}' class="form-checkbox h-5 w-5 text-blue-500 bg-gray-800 border-gray-600 rounded focus:ring-blue-400 focus:ring-offset-gray-800">
+                            <span class="ml-3 text-sm text-gray-200">
+                                <strong>{{ model_data.name }}</strong> (ID: <code class="text-xs bg-gray-600 px-1 py-0.5 rounded">{{ model_data.id }}</code>)
+                            </span>
+                        </label>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            
+            <div class="flex items-center space-x-4 mt-6">
+                <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50">
+                    Import Selected Models
+                </button>
+                <a href="{% url 'api_config' %}" class="text-gray-400 hover:text-white py-2 px-4 rounded-lg border border-gray-600 hover:bg-gray-700">
+                    Cancel
+                </a>
+            </div>
+        </form>
+    {% elif not messages %} 
+        {# Only show this if no specific message (like "all models imported") was already displayed #}
+        <p class="text-gray-400">No new models available to import for this endpoint at the moment, or an error occurred while fetching them. Please check messages above.</p>
+        <div class="mt-6">
+             <a href="{% url 'api_config' %}" class="text-gray-400 hover:text-white py-2 px-4 rounded-lg border border-gray-600 hover:bg-gray-700">
+                Back to API Configuration
+            </a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

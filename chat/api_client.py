@@ -118,6 +118,71 @@ def _test_google_internal(api_key: str) -> Dict[str, Any]:
     except Exception as e: 
         return {"status": "error", "message": "An unexpected error occurred during the Google test.", "details": {"error_type": type(e).__name__, "error_message": str(e)}}
 
+def get_models_from_anthropic(api_key: str) -> Dict[str, Any]:
+    """
+    Fetches a list of models from the Anthropic API.
+    Args:
+        api_key: The Anthropic API key.
+    Returns:
+        A dictionary with 'status', 'models' (list of model dicts), or 'message' and 'details' on error.
+        Each model dict in 'models' will have 'id' and 'name'.
+    """
+    try:
+        client = anthropic.Anthropic(api_key=api_key, http_client=http_client_without_ssl_verification)
+        # The SDK's models.list() returns a Page of Model objects.
+        # Each Model object has attributes like 'id', 'name', 'developer', etc.
+        # We are interested in 'id' and 'name'.
+        api_response = client.models.list() 
+        
+        models_data = []
+        for model_obj in api_response.data: # Iterate through the data attribute of the Page
+            # Assuming model_obj has 'id' and 'name' attributes based on typical SDK behavior.
+            # Adjust if the actual attributes are different (e.g., model_obj.id, model_obj.name).
+            # Based on Anthropic SDK, it should be model_obj.id and model_obj.name
+            # Correcting based on AttributeError: 'ModelInfo' object has no attribute 'name'
+            # Using model_obj.id for both 'id' and 'name' for now.
+            models_data.append({
+                "id": model_obj.id,
+                "name": model_obj.display_name # Use id as name if a separate name attribute is not available
+                # Potentially add other fields if available and useful, e.g., context_length
+                # "context_length": getattr(model_obj, 'context_length', None) 
+            })
+        
+        return {
+            "status": "success",
+            "models": models_data
+        }
+    except anthropic.AuthenticationError as e:
+        return {"status": "error", "message": "Authentication failed. Check API key.", "details": {"error_type": type(e).__name__, "error_message": str(e), "status_code": e.status_code if hasattr(e, 'status_code') else None}, "models": []}
+    except anthropic.APIConnectionError as e:
+        return {"status": "error", "message": "Connection error. Check API URL or network.", "details": {"error_type": type(e).__name__, "error_message": str(e)}, "models": []}
+    except anthropic.RateLimitError as e:
+        return {"status": "error", "message": "Rate limit exceeded.", "details": {"error_type": type(e).__name__, "error_message": str(e), "status_code": e.status_code if hasattr(e, 'status_code') else None}, "models": []}
+    except anthropic.APIStatusError as e: 
+        return {"status": "error", "message": f"API error (status {e.status_code}).", "details": {"error_type": type(e).__name__, "error_message": str(e.response.text if e.response else e), "status_code": e.status_code}, "models": []}
+    except anthropic.APIError as e: 
+        return {"status": "error", "message": "An Anthropic API error occurred.", "details": {"error_type": type(e).__name__, "error_message": str(e)}, "models": []}
+    except Exception as e: 
+        return {"status": "error", "message": "An unexpected error occurred while fetching Anthropic models.", "details": {"error_type": type(e).__name__, "error_message": str(e)}, "models": []}
+
+def get_models_from_provider(endpoint) -> Dict[str, Any]: # endpoint is an AIEndpoint model instance
+    """
+    Fetches models from the API provider based on the endpoint's configuration.
+    Args:
+        endpoint: The AIEndpoint model instance.
+    Returns:
+        A dictionary with 'status', 'models' (list of model dicts), or 'message' on error.
+    """
+    if not endpoint.apikey:
+        return {"status": "error", "message": "API key is missing for this endpoint.", "models": []}
+
+    if endpoint.provider == 'anthropic':
+        return get_models_from_anthropic(api_key=endpoint.apikey)
+    # Add elif for 'openai', 'google' etc. when implemented
+    # elif endpoint.provider == 'openai':
+    #     return get_models_from_openai(api_key=endpoint.apikey) 
+    else:
+        return {"status": "error", "message": f"Model fetching not implemented for provider: {endpoint.provider}", "models": []}
 
 def test_endpoint(endpoint) -> Dict[str, Any]: # endpoint is an AIEndpoint model instance
     """

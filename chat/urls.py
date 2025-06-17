@@ -24,6 +24,7 @@ urlpatterns = [
     path('api-config/endpoint/<int:pk>/edit/', views.api_endpoint_update_view, name='api_endpoint_edit'),
     path('api-config/endpoint/<int:pk>/delete/', views.api_endpoint_delete_view, name='api_endpoint_delete'),
     path('test_api_endpoint/<int:endpoint_id>/', views.test_api_endpoint_view, name='test_api_endpoint'),
+    path('api-config/endpoint/<int:endpoint_pk>/import-models/', views.import_ai_models_view, name='import_ai_models'),
     
     path('api-config/model/add/', views.api_model_create_view, name='api_model_add'), # General add model
     path('api-config/endpoint/<int:endpoint_pk>/model/add/', views.api_model_create_view, name='api_model_add_to_endpoint'), # Add model to specific endpoint

@@ -86,8 +86,11 @@
                 {% else %}
                     <p class="text-sm text-gray-400 pl-4">No models configured for this endpoint yet.</p>
                 {% endif %}
-                <div class="mt-3">
-                     <a href="{% url 'api_model_add_to_endpoint' item.endpoint.pk %}" class="text-xs bg-green-500 hover:bg-green-600 text-white py-1 px-3 rounded-md">Add Model to {{ item.endpoint.name }}</a>
+                <div class="mt-3 space-x-2">
+                     <a href="{% url 'api_model_add_to_endpoint' item.endpoint.pk %}" class="text-xs bg-green-500 hover:bg-green-600 text-white py-1 px-3 rounded-md">Add Model Manually</a>
+                     {% if item.endpoint.provider == 'anthropic' %} {# Add other providers as they are supported #}
+                     <a href="{% url 'import_ai_models' item.endpoint.pk %}" class="text-xs bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded-md">Import Models from {{ item.endpoint.get_provider_display }}</a>
+                     {% endif %}
                 </div>
             </div>
             {% endfor %}
