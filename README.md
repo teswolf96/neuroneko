@@ -97,7 +97,6 @@ Whether you're a developer experimenting with AI, a writer seeking an AI partner
     *   Daphne (ASGI server)
 *   **Database:** SQLite (default, easily configurable in Django settings)
 *   **HTTP Client:** `httpx` (for robust external API communication)
-*   **AI SDKs:** `anthropic` (explicitly integrated), adaptable for other providers like OpenAI and Google.
 *   **Frontend:**
     *   HTML5
     *   Tailwind CSS (for modern, utility-first styling)
