@@ -619,168 +619,181 @@
                 }
             });
 
-
             function connectWebSocket(chatId) {
-                if (chatSocket && chatSocket.readyState !== WebSocket.CLOSED) {
-                    // Mark the old socket as being intentionally replaced
-                    chatSocket.isBeingReplaced = true; 
-                    chatSocket.close();
-                    // Detach old handlers to be absolutely sure they don't interfere
-                    // though isBeingReplaced should be sufficient.
-                    // chatSocket.onopen = null;
-                    // chatSocket.onmessage = null;
-                    // chatSocket.onclose = null;
-                    // chatSocket.onerror = null;
-                }
-                // No global isManuallyClosing flag to reset here.
-                
-                const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
-                // Ensure chat_id is valid before trying to connect
-                if (!chatId || chatId === 'null' || chatId === 'undefined') {
-                    console.error("Invalid chat_id for WebSocket connection:", chatId);
-                    // Optionally, display an error to the user or prevent connection attempt
-                    return;
-                }
-                const wsPath = `${wsScheme}://${window.location.host}/ws/chat/${chatId}/`;
-                chatSocket = new WebSocket(wsPath);
-
-                chatSocket.onopen = function(e) {
-                    console.log(`WebSocket connection opened for chat ${chatId}`);
-                    // Reset reconnection variables on successful connection
-                    reconnectAttempts = 0;
-                    currentReconnectDelay = initialReconnectDelay;
-                    clearTimeout(reconnectTimeoutId); // Clear any pending reconnect timeout
-                    updateConnectionStatus("Connected");
-                    requestCostEstimation(); // Call here to ensure socket is open for initial estimation
-                };
-
-                chatSocket.onmessage = function(e) {
-                    const data = JSON.parse(e.data);
-                    // console.log("WebSocket message received:", data);
-
-                    switch (data.type) {
-                        case 'user_message_created':
-                            // The user message is already added optimistically by renderMessage
-                            // or we can refresh the specific message if needed.
-                            // For now, we assume the UI is up-to-date or will be with the assistant placeholder.
-                            // We might need to update its ID if it was a temporary one.
-                            // Let's ensure the message div for user message exists and has correct ID.
-                            let userMsgDiv = chatMessagesContainerEl.querySelector(`[data-message-id="${data.parent_id}"]`); // This assumes parent_id is the one before user's
-                                                                                                                            // This logic needs to be more robust if user message is added dynamically by JS first.
-                                                                                                                            // For now, let's assume the user message is the one whose parent is data.parent_id
-                                                                                                                            // and it's the last one.
-                            const allMessages = chatMessagesContainerEl.querySelectorAll('[data-message-id]');
-                            if (allMessages.length > 0) {
-                                const potentialUserMsg = allMessages[allMessages.length -1]; // last message
-                                if (potentialUserMsg && potentialUserMsg.querySelector('select').value === 'user') {
-                                     potentialUserMsg.setAttribute('data-message-id', data.message_id);
-                                }
-                            }
-                            chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
-                            break;
-                        case 'assistant_message_placeholder_created':
-                            currentAssistantMessageId = data.message_id;
-                            // Check if the message element already exists
-                            let existingMsgDiv = chatMessagesContainerEl.querySelector(`[data-message-id="${currentAssistantMessageId}"]`);
-                            if (!existingMsgDiv) {
-                                // Only render if it doesn't exist
-                                const newAssistantMsg = {
-                                    id: data.message_id,
-                                    role: data.role,
-                                    content: "", // Placeholder is empty
-                                    parent_id: data.parent_id
-                                };
-                                const messagesInUI = chatMessagesContainerEl.querySelectorAll('[data-message-id]');
-                                renderMessage(newAssistantMsg, chatMessagesContainerEl, true, messagesInUI.length, currentChatRootMessageId);
-                            }
-                            // Now, query for the element (either pre-existing or newly rendered)
-                            currentAssistantMessageContentEl = chatMessagesContainerEl.querySelector(`[data-message-id="${currentAssistantMessageId}"] .prose`);
-                            chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
-                            break;
-                        case 'lock_sidebar':
-                            lockSidebar();
-                            break;
-                        case 'unlock_sidebar':
-                            const wasGeneratingAPlaceholder = currentAssistantMessageId !== null;
-
-                            unlockSidebar(); // Calls unlockGlobalUIAfterGenerationEnd, which handles UI states and currentAssistantMessageId
-
-                            if (wasGeneratingAPlaceholder && currentChatId) {
-                                const activeChatListItem = document.querySelector(`.chat-item.bg-blue-600[data-chat-id="${currentChatId}"]`);
-                                if (activeChatListItem) {
-                                    console.log("Generation attempt involving a placeholder finished, re-fetching chat details to update message tree.");
-                                    activeChatListItem.click(); // This will re-fetch, re-render, and scroll to bottom.
-                                }
-                            }
-                            break;
-                        case 'stream_chunk':
-                            if (data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
-                                // Append text and re-render Markdown
-                                const currentRawContent = currentAssistantMessageContentEl.dataset.rawContent || "";
-                                const newRawContent = currentRawContent + data.text_delta;
-                                currentAssistantMessageContentEl.dataset.rawContent = newRawContent;
-                                currentAssistantMessageContentEl.innerHTML = renderMarkdownSafe(newRawContent);
-                                attachCopyCodeListeners(currentAssistantMessageContentEl); // Add this line
-                                chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
-                            }
-                            break;
-                        case 'stream_end':
-                            if (data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
-                                currentAssistantMessageContentEl.dataset.rawContent = data.full_content; // Store final raw content
-                                currentAssistantMessageContentEl.innerHTML = renderMarkdownSafe(data.full_content);
-                                attachCopyCodeListeners(currentAssistantMessageContentEl); // Add this line
-                            }
-                            // UI reset is handled by unlock_sidebar which should follow
-                            if (data.assistant_message_id === currentAssistantMessageId && data.cost_details) {
-                                // Update UI with cost details for the completed message
-                                const completedMessageDiv = chatMessagesContainerEl.querySelector(`[data-message-id="${data.assistant_message_id}"]`);
-                                if (completedMessageDiv) {
-                                    addCostDisplayToMessage(completedMessageDiv, data.cost_details);
-                                }
-                            }
-                            break;
-                        case 'stream_cancelled':
-                             if (data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
-                                // Content should already be updated by last chunk before cancel or by consumer saving partial
-                                console.log("Stream was cancelled by server or client ack.");
-                            }
-                            // UI reset is handled by unlock_sidebar
-                            break;
-                        case 'stream_error':
-                            if (data.assistant_message_id && data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
-                                currentAssistantMessageContentEl.innerHTML = `<p class="text-red-400">Error: ${data.error}</p>`;
-                            } else {
-                                // General error display or append to last message
-                                const errorDisplay = document.createElement('p');
-                                errorDisplay.classList.add('text-red-400', 'p-2');
-                                errorDisplay.textContent = `Server Error: ${data.error}`;
-                                chatMessagesContainerEl.appendChild(errorDisplay);
-                            }
-                            // UI reset is handled by unlock_sidebar
-                            break;
-                        case 'info':
-                            console.log("Server Info:", data.message);
-                            // Could display this info somewhere if needed
-                            break;
-                        case 'cost_estimation_result':
-                            if (costEstimationDisplayEl) {
-                                costEstimationDisplayEl.textContent = `Input Tokens: ${data.token_count}, Est. Cost: $${data.estimated_cost} (Note: This is an estimate)`;
-                            }
-                            break;
+                return new Promise((resolve, reject) => {
+                    if (chatSocket && chatSocket.readyState !== WebSocket.CLOSED) {
+                        chatSocket.isBeingReplaced = true;
+                        chatSocket.close();
                     }
-                };
 
-                chatSocket.onclose = function(e) {
-                    // console.log('Chat socket closed ' + e.target.url); // Original log
-                    handleDisconnection(e); // Call new handler
-                };
+                    const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+                    if (!chatId || chatId === 'null' || chatId === 'undefined') {
+                        console.error("Invalid chat_id for WebSocket connection:", chatId);
+                        reject(new Error("Invalid chat_id for WebSocket connection"));
+                        return;
+                    }
+                    const wsPath = `${wsScheme}://${window.location.host}/ws/chat/${chatId}/`;
+                    const newSocket = new WebSocket(wsPath);
+                    let connectionTimeout;
 
-                chatSocket.onerror = function(err) {
-                    // console.error('WebSocket encountered error: ', err.message, 'Closing socket'); // Original log
-                    // err is an Event object, not the error message itself directly for handleDisconnection
-                    handleDisconnection(err); // Call new handler
-                    // No need to call chatSocket.close() here, as onerror is often followed by onclose.
-                };
+                    const clearConnectionTimeout = () => {
+                        if (connectionTimeout) {
+                            clearTimeout(connectionTimeout);
+                            connectionTimeout = null;
+                        }
+                    };
+
+                    newSocket.onopen = function(e) {
+                        clearConnectionTimeout();
+                        console.log(`WebSocket connection opened for chat ${chatId}`);
+                        
+                        // Assign to global chatSocket only after successful open
+                        chatSocket = newSocket; 
+                        
+                        // Reset reconnection variables on successful connection
+                        reconnectAttempts = 0;
+                        currentReconnectDelay = initialReconnectDelay;
+                        clearTimeout(reconnectTimeoutId); // Clear any pending reconnect timeout
+                        updateConnectionStatus("Connected");
+                        requestCostEstimation(); // Call here to ensure socket is open for initial estimation
+
+                        // Attach general lifecycle handlers to the now-global chatSocket
+                        chatSocket.onmessage = function(e_msg) {
+                            const data = JSON.parse(e_msg.data);
+                            // console.log("WebSocket message received:", data);
+
+                            switch (data.type) {
+                                case 'user_message_created':
+                                    const allMessages = chatMessagesContainerEl.querySelectorAll('[data-message-id]');
+                                    if (allMessages.length > 0) {
+                                        const potentialUserMsg = allMessages[allMessages.length -1];
+                                        if (potentialUserMsg && potentialUserMsg.querySelector('select').value === 'user') {
+                                             potentialUserMsg.setAttribute('data-message-id', data.message_id);
+                                        }
+                                    }
+                                    chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
+                                    break;
+                                case 'assistant_message_placeholder_created':
+                                    currentAssistantMessageId = data.message_id;
+                                    let existingMsgDiv = chatMessagesContainerEl.querySelector(`[data-message-id="${currentAssistantMessageId}"]`);
+                                    if (!existingMsgDiv) {
+                                        const newAssistantMsg = {
+                                            id: data.message_id,
+                                            role: data.role,
+                                            content: "",
+                                            parent_id: data.parent_id
+                                        };
+                                        const messagesInUI = chatMessagesContainerEl.querySelectorAll('[data-message-id]');
+                                        renderMessage(newAssistantMsg, chatMessagesContainerEl, true, messagesInUI.length, currentChatRootMessageId);
+                                    }
+                                    currentAssistantMessageContentEl = chatMessagesContainerEl.querySelector(`[data-message-id="${currentAssistantMessageId}"] .prose`);
+                                    chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
+                                    break;
+                                case 'lock_sidebar':
+                                    lockSidebar();
+                                    break;
+                                case 'unlock_sidebar':
+                                    const wasGeneratingAPlaceholder = currentAssistantMessageId !== null;
+                                    unlockSidebar();
+                                    if (wasGeneratingAPlaceholder && currentChatId) {
+                                        const activeChatListItem = document.querySelector(`.chat-item.bg-blue-600[data-chat-id="${currentChatId}"]`);
+                                        if (activeChatListItem) {
+                                            console.log("Generation attempt involving a placeholder finished, re-fetching chat details to update message tree.");
+                                            activeChatListItem.click();
+                                        }
+                                    }
+                                    break;
+                                case 'stream_chunk':
+                                    if (data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
+                                        const currentRawContent = currentAssistantMessageContentEl.dataset.rawContent || "";
+                                        const newRawContent = currentRawContent + data.text_delta;
+                                        currentAssistantMessageContentEl.dataset.rawContent = newRawContent;
+                                        currentAssistantMessageContentEl.innerHTML = renderMarkdownSafe(newRawContent);
+                                        attachCopyCodeListeners(currentAssistantMessageContentEl);
+                                        chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
+                                    }
+                                    break;
+                                case 'stream_end':
+                                    if (data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
+                                        currentAssistantMessageContentEl.dataset.rawContent = data.full_content;
+                                        currentAssistantMessageContentEl.innerHTML = renderMarkdownSafe(data.full_content);
+                                        attachCopyCodeListeners(currentAssistantMessageContentEl);
+                                    }
+                                    if (data.assistant_message_id === currentAssistantMessageId && data.cost_details) {
+                                        const completedMessageDiv = chatMessagesContainerEl.querySelector(`[data-message-id="${data.assistant_message_id}"]`);
+                                        if (completedMessageDiv) {
+                                            addCostDisplayToMessage(completedMessageDiv, data.cost_details);
+                                        }
+                                    }
+                                    break;
+                                case 'stream_cancelled':
+                                     if (data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
+                                        console.log("Stream was cancelled by server or client ack.");
+                                    }
+                                    break;
+                                case 'stream_error':
+                                    if (data.assistant_message_id && data.assistant_message_id === currentAssistantMessageId && currentAssistantMessageContentEl) {
+                                        currentAssistantMessageContentEl.innerHTML = `<p class="text-red-400">Error: ${data.error}</p>`;
+                                    } else {
+                                        const errorDisplay = document.createElement('p');
+                                        errorDisplay.classList.add('text-red-400', 'p-2');
+                                        errorDisplay.textContent = `Server Error: ${data.error}`;
+                                        chatMessagesContainerEl.appendChild(errorDisplay);
+                                    }
+                                    break;
+                                case 'info':
+                                    console.log("Server Info:", data.message);
+                                    break;
+                                case 'cost_estimation_result':
+                                    if (costEstimationDisplayEl) {
+                                        costEstimationDisplayEl.textContent = `Input Tokens: ${data.token_count}, Est. Cost: $${data.estimated_cost} (Note: This is an estimate)`;
+                                    }
+                                    break;
+                            }
+                        };
+
+                        chatSocket.onclose = function(e_close) {
+                            handleDisconnection(e_close);
+                        };
+
+                        chatSocket.onerror = function(e_err) {
+                            handleDisconnection(e_err);
+                        };
+                        
+                        resolve(chatSocket); // Resolve the promise with the new socket
+                    };
+
+                    newSocket.onerror = function(err) {
+                        clearConnectionTimeout();
+                        console.error('WebSocket encountered error during initial connection: ', err, 'for chat', chatId);
+                        // Don't call handleDisconnection here as it's for an already established socket.
+                        // The main promise will be rejected.
+                        updateConnectionStatus("Connection Error. Please refresh.", true);
+                        reject(new Error('WebSocket connection error during setup.'));
+                    };
+
+                    newSocket.onclose = function(e_close) {
+                        clearConnectionTimeout();
+                        // This onclose is for the *newSocket* before it's assigned to chatSocket.
+                        // If it closes before onopen, it's a connection failure.
+                        if (chatSocket !== newSocket) { // Check if it's the new socket that closed prematurely
+                            console.warn(`WebSocket for chat ${chatId} closed prematurely with code ${e_close.code}.`);
+                            updateConnectionStatus("Connection Failed. Please refresh.", true);
+                            reject(new Error(`WebSocket closed prematurely (code: ${e_close.code})`));
+                        }
+                        // If chatSocket === newSocket, it means onopen fired, and the global onclose handler will take over.
+                    };
+                    
+                    // Set a timeout for the connection attempt
+                    connectionTimeout = setTimeout(() => {
+                        if (newSocket.readyState !== WebSocket.OPEN) {
+                            console.error(`WebSocket connection to chat ${chatId} timed out after 10 seconds.`);
+                            newSocket.close(); // Attempt to close the hung socket
+                            updateConnectionStatus("Connection Timed Out. Please refresh.", true);
+                            reject(new Error('WebSocket connection timed out.'));
+                        }
+                    }, 10000); // 10 seconds timeout
+                });
             }
 
             // Function to render a single message
@@ -1092,55 +1105,37 @@
                                     if (siblingData.status === 'success' && siblingData.new_message_id) {
                                         const newSiblingId = siblingData.new_message_id;
 
-                                        // Refresh chat display to show the new empty sibling
-                                        refreshActiveChat().then(() => {
-                                            const newSiblingElementProse = chatMessagesContainerEl.querySelector(`[data-message-id="${newSiblingId}"] .prose`);
-                                            if (newSiblingElementProse) {
-                                                currentAssistantMessageId = newSiblingId;
-                                                currentAssistantMessageContentEl = newSiblingElementProse;
-                                                currentAssistantMessageContentEl.dataset.rawContent = ""; // Ensure it's empty
-                                                currentAssistantMessageContentEl.innerHTML = "";
-
-                                                // Polling function to wait for WebSocket to be open
-                                                let attempts = 0;
-                                                const maxAttempts = 20; // e.g., 20 * 250ms = 5 seconds
-                                                const interval = 250; // ms
-
-                                                function attemptSendGenerateIntoNewSibling() {
-                                                    if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
-                                                        chatSocket.send(JSON.stringify({
-                                                            type: 'generate_into_empty_message',
-                                                            target_message_id: newSiblingId, // In scope
-                                                            model_id: selectedModelId      // In scope
-                                                        }));
-                                                        // UI locking is handled by the 'lock_sidebar' message from consumer,
-                                                        // and unlocking by 'unlock_sidebar'.
-                                                    } else if (attempts < maxAttempts) {
-                                                        attempts++;
-                                                        console.log(`WebSocket not open for new sibling generation, attempt ${attempts}/${maxAttempts}. Retrying in ${interval}ms...`);
-                                                        setTimeout(attemptSendGenerateIntoNewSibling, interval);
-                                                    } else {
-                                                        console.error("WebSocket failed to open after multiple attempts for new sibling generation.");
-                                                        alert("Error: Could not connect to the server for generation. Please try again.");
-                                                        unlockGlobalUIAfterGenerationEnd(); // Unlock UI
-                                                    }
-                                                }
-                                                attemptSendGenerateIntoNewSibling(); // Start polling
-                                            } else {
-                                                console.error("Could not find new sibling element .prose in DOM after refresh for generation.");
-                                                alert("Error preparing for generation. UI might be out of sync.");
-                                                unlockGlobalUIAfterGenerationEnd(); // Unlock UI
+                                        // refreshActiveChat returns a promise that resolves with the socket
+                                        return refreshActiveChat().then(socket => {
+                                            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                                                throw new Error("WebSocket connection failed or not open after refresh for new sibling generation.");
                                             }
+                                            const newSiblingElementProse = chatMessagesContainerEl.querySelector(`[data-message-id="${newSiblingId}"] .prose`);
+                                            if (!newSiblingElementProse) {
+                                                console.error("Could not find new sibling element .prose in DOM after refresh for generation.");
+                                                throw new Error("UI error: Could not find new sibling element for generation.");
+                                            }
+
+                                            currentAssistantMessageId = newSiblingId;
+                                            currentAssistantMessageContentEl = newSiblingElementProse;
+                                            currentAssistantMessageContentEl.dataset.rawContent = "";
+                                            currentAssistantMessageContentEl.innerHTML = "";
+
+                                            socket.send(JSON.stringify({
+                                                type: 'generate_into_empty_message',
+                                                target_message_id: newSiblingId,
+                                                model_id: selectedModelId
+                                            }));
+                                            // UI locking is handled by 'lock_sidebar' and 'unlock_sidebar' messages
                                         });
                                     } else {
-                                        alert('Error creating sibling message: ' + (siblingData.error || 'Unknown error'));
-                                        unlockGlobalUIAfterGenerationEnd(); // Unlock UI
+                                        throw new Error(siblingData.error || 'Unknown error creating sibling message.');
                                     }
                                 })
                                 .catch(error => {
-                                    console.error('Error in add_sibling_message_api call:', error);
-                                    alert('Error setting up sibling for generation: ' + error.message);
-                                    unlockGlobalUIAfterGenerationEnd(); // Unlock UI
+                                    console.error('Error in generating into new sibling:', error);
+                                    alert('Error setting up for generation: ' + error.message);
+                                    unlockGlobalUIAfterGenerationEnd(); // Ensure UI is unlocked on error
                                 });
                             }
                         })
@@ -1324,20 +1319,15 @@
                         alert('Could not regenerate: Chat or Message ID missing.');
                         return;
                     }
-                    if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
-                        alert('WebSocket is not connected. Please try selecting the chat again or refresh.');
-                        return;
-                    }
+                    
                     const selectedModelId = chatModelSelectEl.value;
                     if (!selectedModelId) {
                         alert('Please select an AI model.');
                         return;
                     }
 
-                    // Lock UI before starting async operations
                     lockGlobalUIAfterGenerationStart();
 
-                    // Step 1: Create a new sibling for the current message
                     fetch(`/api/chat/${currentChatId}/message/${currentMessageId}/add_sibling/`, {
                         method: 'POST',
                         headers: {
@@ -1355,56 +1345,38 @@
                         if (siblingData.status === 'success' && siblingData.new_message_id) {
                             const newlyCreatedSiblingId = siblingData.new_message_id;
 
-                            // Refresh chat display to show the new empty sibling
-                            refreshActiveChat().then(() => {
+                            // refreshActiveChat now returns a promise that resolves with the socket
+                            // or rejects if connection fails.
+                            return refreshActiveChat().then(socket => {
+                                if (!socket || socket.readyState !== WebSocket.OPEN) {
+                                    throw new Error("WebSocket connection failed or not open after refresh.");
+                                }
                                 const newSiblingElementProse = chatMessagesContainerEl.querySelector(`[data-message-id="${newlyCreatedSiblingId}"] .prose`);
                                 if (!newSiblingElementProse) {
                                     console.error("Could not find new sibling element .prose in DOM after refresh for regeneration.");
-                                    alert("Error preparing for regeneration. UI might be out of sync.");
-                                    unlockGlobalUIAfterGenerationEnd(); // Unlock UI if we can't proceed
-                                    return;
+                                    throw new Error("UI error: Could not find new sibling element.");
                                 }
 
                                 currentAssistantMessageId = newlyCreatedSiblingId;
                                 currentAssistantMessageContentEl = newSiblingElementProse;
-                                currentAssistantMessageContentEl.dataset.rawContent = ""; // Ensure it's empty
+                                currentAssistantMessageContentEl.dataset.rawContent = "";
                                 currentAssistantMessageContentEl.innerHTML = "";
 
-                                // Polling function to wait for WebSocket to be open
-                                let attempts = 0;
-                                const maxAttempts = 20; // e.g., 20 * 250ms = 5 seconds
-                                const interval = 250; // ms
-
-                                function attemptSendGenerate() {
-                                    if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
-                                        chatSocket.send(JSON.stringify({
-                                            type: 'generate_into_empty_message',
-                                            target_message_id: newlyCreatedSiblingId,
-                                            model_id: selectedModelId
-                                        }));
-                                        // UI locking is already active. WebSocket 'unlock_sidebar' will handle unlocking.
-                                    } else if (attempts < maxAttempts) {
-                                        attempts++;
-                                        console.log(`WebSocket not open, attempt ${attempts}/${maxAttempts}. Retrying in ${interval}ms...`);
-                                        setTimeout(attemptSendGenerate, interval);
-                                    } else {
-                                        console.error("WebSocket failed to open after multiple attempts for regeneration.");
-                                        alert("Error: Could not connect to the server for regeneration. Please try again.");
-                                        unlockGlobalUIAfterGenerationEnd(); // Unlock UI
-                                    }
-                                }
-                                attemptSendGenerate(); // Start polling
-
+                                socket.send(JSON.stringify({
+                                    type: 'generate_into_empty_message',
+                                    target_message_id: newlyCreatedSiblingId,
+                                    model_id: selectedModelId
+                                }));
+                                // UI locking is already active. WebSocket 'unlock_sidebar' will handle unlocking.
                             });
                         } else {
-                            alert('Error creating sibling message for regeneration: ' + (siblingData.error || 'Unknown error'));
-                            unlockGlobalUIAfterGenerationEnd(); // Unlock UI on error
+                            throw new Error(siblingData.error || 'Unknown error creating sibling message for regeneration.');
                         }
                     })
                     .catch(error => {
-                        console.error('Error in add_sibling_message_api call for regeneration:', error);
-                        alert('Error setting up for regeneration: ' + error.message);
-                        unlockGlobalUIAfterGenerationEnd(); // Unlock UI on error
+                        console.error('Error during regeneration process:', error);
+                        alert('Error during regeneration: ' + error.message);
+                        unlockGlobalUIAfterGenerationEnd(); // Unlock UI on any error in the chain
                     });
                 });
 
@@ -1814,13 +1786,16 @@
                         chatMessagesContainerEl.scrollTop = chatMessagesContainerEl.scrollHeight;
 
                         if (chatId) {
-                            connectWebSocket(chatId);
+                            // connectWebSocket now returns a promise.
+                            // This promise will be the final result of the fetchAndRenderChat chain.
+                            return connectWebSocket(chatId);
                         }
+                        return Promise.resolve(null); // Resolve with null if no WebSocket connection was attempted
                     });
             }
 
             function refreshActiveChat() {
-                if (!currentChatId) return Promise.resolve();
+                if (!currentChatId) return Promise.resolve(null); // Resolve with null if no current chat
                 return fetchAndRenderChat(currentChatId);
             }
 
