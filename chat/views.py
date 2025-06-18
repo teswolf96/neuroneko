@@ -961,6 +961,47 @@ def set_active_child_api(request, chat_id):
 
 @login_required
 @require_POST
+@transaction.atomic # Ensures the whole operation is atomic
+def isolate_message_api(request, chat_id, message_id):
+    # Get the chat and the specific message to isolate, ensuring user ownership
+    chat = get_object_or_404(Chat, id=chat_id, user=request.user)
+    message_to_isolate = get_object_or_404(Message, id=message_id, chat=chat)
+
+    parent_message = message_to_isolate.parent
+
+    if not parent_message:
+        # If the message to isolate is a root message or has no parent,
+        # it effectively has no siblings in the context of a parent-child tree.
+        return JsonResponse({
+            'status': 'info', # Using 'info' as it's not an error but an edge case
+            'message': 'Message has no parent, so no siblings to isolate from.'
+        })
+
+    # Identify all other messages (siblings) that share the same parent
+    siblings_to_delete = Message.objects.filter(parent=parent_message).exclude(id=message_to_isolate.id)
+
+    # Delete each sibling.
+    # Since Message.parent has on_delete=models.CASCADE,
+    # deleting a sibling will automatically delete all its children (descendants).
+    for sibling in siblings_to_delete:
+        sibling.delete()
+
+    # After deleting all siblings, the 'message_to_isolate' becomes the only child.
+    # Update its parent's 'active_child' pointer to this message.
+    parent_message.active_child = message_to_isolate
+    parent_message.save(update_fields=['active_child'])
+    
+    # The 'message_to_isolate' itself does not have previous_sibling_id or next_sibling_id fields,
+    # so no updates are needed for those on the message itself.
+
+    return JsonResponse({
+        'status': 'success',
+        'message': 'Message isolated successfully. Siblings and their children have been deleted.'
+    })
+
+
+@login_required
+@require_POST
 def add_child_message_api(request, chat_id, parent_message_id):
     chat_session = get_object_or_404(Chat, id=chat_id, user=request.user)
     parent_message = get_object_or_404(Message, id=parent_message_id, chat=chat_session)
