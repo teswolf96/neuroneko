@@ -1899,37 +1899,43 @@
 
             // New Folder button functionality
             if (newFolderButton) {
-                newFolderButton.addEventListener('click', function() {
-                    const folderName = window.prompt("Enter the name for the new folder:");
-                    if (folderName && folderName.trim() !== "") {
-                        fetch(`/api/folder/create/`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-CSRFToken': '{{ csrf_token }}'
-                            },
-                            body: JSON.stringify({ folder_name: folderName.trim() })
-                        })
-                        .then(response => {
-                            if (!response.ok) {
-                                return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
-                            }
-                            return response.json();
-                        })
-                        .then(data => {
-                            if (data.status === 'success') {
-                                //alert(data.message || 'Folder created successfully!');
-                                window.location.reload(); // Reload to see the new folder
-                            } else {
-                                alert('Error creating folder: ' + (data.error || 'Unknown error'));
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Error creating folder:', error);
-                            alert('Error creating folder: ' + error.message);
-                        });
-                    }
-                });
+                // Check if a listener has already been attached using a data attribute
+                if (!newFolderButton.dataset.newFolderListenerAttached) {
+                    newFolderButton.dataset.newFolderListenerAttached = 'true'; // Mark as attached
+                    
+                    newFolderButton.addEventListener('click', function() {
+                        const folderName = window.prompt("Enter the name for the new folder:");
+                        if (folderName && folderName.trim() !== "") {
+                            fetch(`/api/folder/create/`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-CSRFToken': '{{ csrf_token }}'
+                                },
+                                body: JSON.stringify({ folder_name: folderName.trim() })
+                            })
+                            .then(response => {
+                                if (!response.ok) {
+                                    // It's good practice to parse error JSON if available
+                                    return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+                                }
+                                return response.json();
+                            })
+                            .then(data => {
+                                if (data.status === 'success') {
+                                    //alert(data.message || 'Folder created successfully!');
+                                    window.location.reload(); // Reload to see the new folder
+                                } else {
+                                    alert('Error creating folder: ' + (data.error || 'Unknown error'));
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error creating folder:', error);
+                                alert('Error creating folder: ' + error.message);
+                            });
+                        }
+                    });
+                }
             }
             });
 

@@ -85,6 +85,7 @@ class Chat(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chats', help_text="The user who owns this chat", null=True, blank=True)
     title = models.CharField(max_length=255, help_text="Title of the chat session")
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True) # <--- ADD THIS LINE
     folder = models.ForeignKey(Folder, on_delete=models.CASCADE, null=True, blank=True, related_name='chats_in_folder', help_text="Folder this chat belongs to (optional)") # Changed related_name, allow null/blank, CASCADE
     root_message = models.ForeignKey('Message', on_delete=models.SET_NULL, null=True, blank=True, related_name='+', help_text="The first message in this chat, acting as the root of the conversation tree")
     # Optional: Store the AI model used for this specific chat
